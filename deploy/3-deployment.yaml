@@ -1,0 +1,101 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: extender
+  namespace: kube-throttler
+spec:
+  selector:
+    app: kube-throttler
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 4321
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kube-throttler-application-ini
+  namespace: kube-throttler
+data:
+  application.ini: |
+    # for jvm debug
+    -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005
+  application.conf: |
+      kube-throttler {
+        graceful-shutdown-duration = 30 s
+        ask-timeout = 10 s
+        host = "0.0.0.0"
+        port = 4321
+      }
+      skuber {
+        akka {
+          # The ID of the dispatcher to use by Skuber. If undefined or empty the default Akka dispatcher is used.
+          dispatcher = ""
+        }
+
+        watch {
+          # The idle timeout duration for any connections used by skuber `watch` requests - if null the timeout is infinite.
+          idle-timeout = null
+        }
+
+        watch-continuously {
+          # Timeout that is passed to the kubernetes cluster for all list/watch calls. This limits the duration of the call,
+          # regardless of any activity or inactivity.
+          request-timeout = 1800s
+
+          # The idle timeout for the connection before if closes due to inactivity. The idle-timeout must be a great value
+          # than that used for timeout-seconds.
+          idle-timeout = 3600s
+
+          # The idle timeout for the connection pool used by the Watch Source (each source has its own connection pool).
+          # When the pool is no longer used by the source and the idle time has been exceeded the pool will shutdown and
+          # reclaim the unused resources.
+          pool-idle-timeout = 7200s
+        }
+      }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-throttler
+  namespace: kube-throttler
+  labels:
+    app: kube-throttler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kube-throttler
+  template:
+    metadata:
+      labels:
+        app: kube-throttler
+    spec:
+      serviceAccountName: kube-throttler
+      volumes:
+      - name: application-ini
+        configMap:
+          name: kube-throttler-application-ini
+      containers:
+      - name: ctr
+        image: everpeace/kube-throttler:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 4321
+        - containerPort: 5005
+        volumeMounts:
+        - name: application-ini
+          mountPath: /opt/docker/conf
+        livenessProbe:
+          httpGet:
+            path: /live
+            port: 4321
+          initialDelaySeconds: 3
+          periodSeconds: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 4321
+          initialDelaySeconds: 5
+          periodSeconds: 5

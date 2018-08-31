@@ -1,0 +1,10 @@
+apiVersion: schedule.k8s.everpeace.github.com/v1alpha1
+kind: Throttle
+metadata:
+  name: t1
+spec:
+  selector:
+    matchLabels:
+      throttle: t1
+  threshold:
+    cpu: 100m
