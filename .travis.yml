@@ -1,4 +1,7 @@
-sudo: false
+sudo: true
+
+services:
+- docker
 
 language: scala
 scala:
@@ -21,7 +24,7 @@ before_cache:
   - find $HOME/.ivy2 -name "ivydata-*.properties" | xargs rm
 
 
-script: sbt ++$TRAVIS_SCALA_VERSION test
+script: sbt ++$TRAVIS_SCALA_VERSION test docker:stage docker:publishLocal
 
 branches:
   only:
