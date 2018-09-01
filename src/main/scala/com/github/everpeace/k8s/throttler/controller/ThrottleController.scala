@@ -46,6 +46,8 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
   implicit private val mat    = ActorMaterializer()
   implicit private val ec     = context.dispatcher
 
+  private val k8sMap: mutable.Map[String, K8SRequestContext] = mutable.Map(k8s.namespaceName -> k8s)
+
   private val cache = new {
     val pods      = new ObjectResourceCache[Pod]()
     val throttles = new ObjectResourceCache[v1alpha1.Throttle]()
@@ -107,9 +109,12 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
       st: v1alpha1.Throttle.Status
     ): Future[v1alpha1.Throttle] = {
     val (ns, n) = key
-    val k8sNs   = skuber.k8sInit(skuber.api.client.defaultK8sConfig.setCurrentNamespace(ns))
+
+    val k8sNs = k8sMap.getOrElseUpdate(
+      ns,
+      skuber.k8sInit(skuber.api.client.defaultK8sConfig.setCurrentNamespace(ns)))
     val fut = for {
-      latest    <- k8sNs.getInNamespace[v1alpha1.Throttle](n, ns)
+      latest    <- k8sNs.get[v1alpha1.Throttle](n)
       nextState = latest.copy(status = Option(st))
       _         <- Future { log.info("updating throttle {} with status ({})", key, st) }
       result    <- k8sNs.updateStatus(nextState)
@@ -155,7 +160,6 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
     val podsInNs         = cache.pods.toImmutable.getOrElse(ns, Set.empty[Pod])
     val allThrottlesInNs = cache.throttles.toImmutable.getOrElse(ns, Set.empty[v1alpha1.Throttle])
 
-    // TODO: error handling
     for {
       (key, st) <- _calcNextThrottleStatuses(allThrottlesInNs, podsInNs)
     } yield {
@@ -168,7 +172,6 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
     val ns       = throttle.namespace
     val podsInNs = cache.pods.toImmutable.getOrElse(ns, Set.empty[Pod])
 
-    // TODO: error handling
     for {
       (key, st) <- _calcNextThrottleStatuses(Set(throttle), podsInNs)
     } yield {
