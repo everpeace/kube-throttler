@@ -81,26 +81,22 @@ package object k8s {
     override def compare(x: Quantity, y: Quantity): Int = x.amount.compare(y.amount)
   }
 
-  implicit val resourceListOrder: cats.Order[ResourceList] = new cats.Order[ResourceList] {
-    override def compare(x: ResourceList, y: ResourceList): Int = {
-
-      def _compare(key: Set[String]): Int = {
-        val compareResults = key.map(k => x(k) compare y(k))
-        if (compareResults.forall(_ == 0)) {
-          0
-        } else if (compareResults.forall(_ < 0)) {
-          -1
+  implicit val resourceListOrder: cats.PartialOrder[ResourceList] =
+    new cats.PartialOrder[ResourceList] {
+      override def partialCompare(x: ResourceList, y: ResourceList): Double = {
+        val commonResources = x.keySet.intersect(y.keySet)
+        if (commonResources.isEmpty) {
+          Double.NaN
         } else {
-          1
+          val compareResults = commonResources.map(k => x(k) compare y(k))
+          if (compareResults.forall(_ == 0)) {
+            0d
+          } else if (compareResults.forall(_ < 0)) {
+            -1d
+          } else {
+            1d
+          }
         }
       }
-
-      val commonResources = x.keySet.intersect(y.keySet)
-      if (commonResources.isEmpty) {
-        -1
-      } else {
-        _compare(commonResources)
-      }
     }
-  }
 }

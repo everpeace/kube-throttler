@@ -2,9 +2,9 @@
 [![Build Status](https://travis-ci.org/everpeace/kube-throttler.svg?branch=master)](https://travis-ci.org/everpeace/kube-throttler) 
 [![MicroBadger Size](https://img.shields.io/microbadger/image-size/everpeace/kube-throttler.svg)](https://hub.docker.com/r/everpeace/kube-throttler/)
 
-`kube-throttler` enables you to throttle your pods.   It means that `kube-throttler` can prohibit to schedule any pods when it detects total amonut of computational resource of `Running` pods exceeds a threshold (in terms of `resources.requests` field). 
+`kube-throttler` enables you to throttle your pods.   It means that `kube-throttler` can prohibit to schedule any pods when it detects total amount of computational resource of `Running` pods exceeds a threshold (in terms of `resources.requests` field). 
 
-`kube-throttler` provides you very flexible and fine-grained throttle control.  You can specify a set of pods which you want to throttle by [label selector](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/) and its threshold by `Throttle` CRD (_see [deploy/0-crd.yaml](deploy/0-crd.yaml) for completed definition).
+`kube-throttler` provides you very flexible and fine-grained throttle control.  You can specify a set of pods which you want to throttle by [label selector](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/) and its threshold by `Throttle` CRD (see [deploy/0-crd.yaml](deploy/0-crd.yaml) for complete definition).
 
 Throttle control is fully dynamic.  Once you update throttle setting, `kube-throttler` follow the setting and change its status in up-to-date. 
 
@@ -82,18 +82,18 @@ spec:
   # you can set a threshold of the throttle
   # limiting total amount of resource whichRunning pods can `requests` 
   threshold:
-    cpu: 100m
+    cpu: 200m
 
 ```
 
 ## How `kube-throttler` works
 I describe a simple scenario here.
 
-- define a throttle `t1` which targets `throttle=t1` label and threshold `cpu=100m`.
-- create `pod1` with the same label and `requests` `cpu=100m`
-- then, `t1` status will transition to `throttled: true` because total amount of running pods reaches its threshold. 
-- create `pod2` with the same label and `requests` `cpu=100m` and see the pod stays `Pending` state.
-- update `t1` threshold with `cpu=300m`, then throttle will open and see `pod2` will be scheduled.
+- define a throttle `t1` which targets `throttle=t1` label and threshold `cpu=200m`.
+- create `pod1` with the same label and `requests` `cpu=300m`
+- then, `t1` status will transition to `throttled: true` because total amount of running pods exceeds its threshold. 
+- create `pod2` with the same label and `requests` `cpu=300m` and see the pod stays `Pending` state because it was throttled.
+- update `t1` threshold with `cpu=700m`, then throttle will open and see `pod2` will be scheduled.
 
 Lets' create `Thrttle` first. 
 
@@ -111,13 +111,13 @@ spec:
     matchLabels:
       throttle: t1
   threshold:
-    cpu: 100m
+    cpu: 200m
 status:
   throttled: false
   used: {}
 ```
 
-Then, create a pods with label `throttle=t1` and `requests` `cpu=100m`.
+Then, create a pods with label `throttle=t1` and `requests` `cpu=300m`.
 
 ```shell
 kubectl create -f example/gen-pod.yaml
@@ -131,7 +131,7 @@ $ kubectl get throttle t1 -o yaml
 status:
   throttled: true
   used:
-    cpu: "0.1"
+    cpu: "0.300"
 ```
 
 Next, create another pod then you will see the pod will be throttled and keep stay `Pending` state by `kube-throttler`.
@@ -146,11 +146,11 @@ Events:
   Warning  FailedScheduling  14s (x9 over 1m)  my-scheduler       pod is unschedulable due to throttles=t1
 ```
 
-Then, update `t1` threshold with `cpu=3m`
+Then, update `t1` threshold with `cpu=700m`
 
 ```shell
 $ kubectl edit throttle t1
-# Please edit threshold section 'cpu: 100m' ==> 'cpu: 300m'
+# Please edit threshold section 'cpu: 200m' ==> 'cpu: 700m'
 
 $ kubectl describe pod pod2
 Events:
@@ -174,11 +174,11 @@ spec:
     matchLabels:
       throttle: t1
   threshold:
-    cpu: 300m
+    cpu: 700m
 status:
   throttled: false
   used:
-    cpu: "0.2"
+    cpu: "0.600"
 ``` 
 
 # License

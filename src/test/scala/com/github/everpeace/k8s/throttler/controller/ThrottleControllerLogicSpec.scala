@@ -19,11 +19,11 @@ package com.github.everpeace.k8s.throttler.controller
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import org.scalatest.{FreeSpec, Matchers}
 import skuber.LabelSelector.IsEqualRequirement
-import skuber.Resource.Quantity
+import skuber.Resource.{Quantity, ResourceList}
 import skuber.{Container, LabelSelector, ObjectMeta, Pod, Resource}
 
 class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleControllerLogic {
-  def simplePod(resourceRequirements: List[Option[Resource.Requirements]]): Pod = {
+  def mkPod(resourceRequirements: List[Option[Resource.Requirements]]): Pod = {
     val containers = resourceRequirements.zipWithIndex.map {
       case (rr, index) =>
         Container(
@@ -38,18 +38,81 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
     Pod("dummy", spec)
   }
 
+  def phase(s: Pod.Phase.Phase) = Option(Pod.Status(Option(s)))
+
+  def resourceRequirements(requests: ResourceList, limits: ResourceList = Map()) =
+    Some(Resource.Requirements(limits = limits, requests = requests))
+
+  val commonMeta = ObjectMeta(
+    namespace = "default",
+    name = "dummy",
+    labels = Map("key" -> "value")
+  )
+
   "ThrottleController" - {
-    "activate Throttle when total 'requests' of running pods exceeds threshold" in {
-      val pod = simplePod(
+    "should not throttle when total `requests` of running pods can't compare threshold" in {
+      val pod = mkPod(List(resourceRequirements(Map("r" -> Quantity("2"))))).copy(
+        metadata = commonMeta,
+        status = phase(Pod.Phase.Running)
+      )
+      val throttle = v1alpha1
+        .Throttle(
+          "t1",
+          v1alpha1.Throttle.Spec(
+            selector = LabelSelector(IsEqualRequirement("key", "value")),
+            threshold = Map("s" -> Quantity("3"))
+          )
+        )
+        .withNamespace("default")
+        .withName("t1")
+
+      val podsInNs      = Set(pod)
+      val throttlesInNs = Set(throttle)
+      val expectedStatus = v1alpha1.Throttle.Status(
+        throttled = false,
+        used = Map("r" -> Quantity("2"))
+      )
+
+      val actual = calcNextThrottleStatuses(throttlesInNs, podsInNs)
+      actual.size shouldBe 1
+      actual.head shouldBe throttle.key -> expectedStatus
+    }
+
+    "should not throttle when total `requests` of running pods equal to its threshold" in {
+      val pod = mkPod(List(resourceRequirements(Map("r" -> Quantity("2"))))).copy(
+        metadata = commonMeta,
+        status = phase(Pod.Phase.Running)
+      )
+      val throttle = v1alpha1
+        .Throttle(
+          "t1",
+          v1alpha1.Throttle.Spec(
+            selector = LabelSelector(IsEqualRequirement("key", "value")),
+            threshold = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
+          )
+        )
+        .withNamespace("default")
+        .withName("t1")
+
+      val podsInNs      = Set(pod)
+      val throttlesInNs = Set(throttle)
+      val expectedStatus = v1alpha1.Throttle.Status(
+        throttled = false,
+        used = Map("r" -> Quantity("2"))
+      )
+
+      val actual = calcNextThrottleStatuses(throttlesInNs, podsInNs)
+      actual.size shouldBe 1
+      actual.head shouldBe throttle.key -> expectedStatus
+    }
+
+    "should throttle when total 'requests' of running pods exceeds threshold" in {
+      val pod = mkPod(
         List(
-          Some(Resource.Requirements(limits = Map(), requests = Map("r" -> Quantity("2"))))
+          resourceRequirements(Map("r" -> Quantity("2")))
         )).copy(
-        metadata = ObjectMeta(
-          namespace = "default",
-          name = "dummy",
-          labels = Map("key" -> "value")
-        ),
-        status = Option(Pod.Status(Option(Pod.Phase.Running)))
+        metadata = commonMeta,
+        status = phase(Pod.Phase.Running)
       )
       val throttle = v1alpha1
         .Throttle(
@@ -74,17 +137,13 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
       actual.head shouldBe throttle.key -> expectedStatus
     }
 
-    "deactivate Throttle when total 'requests' of running pods fall below threshold" in {
-      val pod = simplePod(
+    "should not throttled when total 'requests' of running pods fall below threshold" in {
+      val pod = mkPod(
         List(
-          Some(Resource.Requirements(limits = Map(), requests = Map("r" -> Quantity("5"))))
+          resourceRequirements(Map("r" -> Quantity("5")))
         )).copy(
-        metadata = ObjectMeta(
-          namespace = "default",
-          name = "dummy",
-          labels = Map("key" -> "value")
-        ),
-        status = Option(Pod.Status(Option(Pod.Phase.Succeeded)))
+        metadata = commonMeta,
+        status = phase(Pod.Phase.Succeeded)
       )
       val throttle = v1alpha1
         .Throttle(

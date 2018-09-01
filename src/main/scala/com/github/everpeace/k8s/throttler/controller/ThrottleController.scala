@@ -342,18 +342,24 @@ trait ThrottleControllerLogic {
       matchedPods  = podsInNs.filter(p => throttle.spec.selector.matches(p.metadata.labels))
       running      = matchedPods.filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
       usedResource = running.map(_.totalRequests).foldLeft(Map.empty: ResourceList)(_ add _)
-      nextStatus = if (usedResource < throttle.spec.threshold) {
-        v1alpha1.Throttle.Status(
-          throttled = false,
-          used = usedResource
-        )
-      } else {
-        v1alpha1.Throttle.Status(
-          throttled = true,
-          used = usedResource
-        )
-      }
-
+      nextStatus = (usedResource tryCompare throttle.spec.threshold)
+        .map {
+          case v if v <= 0 =>
+            v1alpha1.Throttle.Status(
+              throttled = false,
+              used = usedResource
+            )
+          case _ =>
+            v1alpha1.Throttle.Status(
+              throttled = true,
+              used = usedResource
+            )
+        }
+        .getOrElse(
+          v1alpha1.Throttle.Status(
+            throttled = false,
+            used = usedResource
+          ))
       toUpdate <- if (throttle.status != Option(nextStatus)) {
                    List(throttle.key -> nextStatus)
                  } else {

@@ -7,4 +7,4 @@ spec:
     matchLabels:
       throttle: t1
   threshold:
-    cpu: 100m
+    cpu: 200m
