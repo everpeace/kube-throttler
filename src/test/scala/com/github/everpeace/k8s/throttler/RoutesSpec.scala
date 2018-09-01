@@ -145,8 +145,9 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
               items = List.empty
             )
           ),
-          failedNodes = Map("minikube" -> "pod is unschedulable due to throttles=throttle"),
-          error = Some("pod is unschedulable due to throttles=throttle")
+          failedNodes =
+            Map("minikube" -> "pod (default,throttled) is unschedulable due to throttles=throttle"),
+          error = Some("pod (default,throttled) is unschedulable due to throttles=throttle")
         )
       }
     }

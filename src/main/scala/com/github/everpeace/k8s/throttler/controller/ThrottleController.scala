@@ -326,7 +326,10 @@ object ThrottleController {
 
   private case class ThrottleWatchEvent(e: K8SWatchEvent[v1alpha1.Throttle])
 
-  def props(implicit k8s: K8SRequestContext) = Props(new ThrottleController())
+  def props(k8s: K8SRequestContext) = {
+    implicit val _k8s = k8s
+    Props(new ThrottleController())
+  }
 }
 
 trait ThrottleControllerLogic {

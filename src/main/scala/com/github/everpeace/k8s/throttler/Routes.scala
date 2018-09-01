@@ -23,6 +23,7 @@ import akka.stream.ActorMaterializer
 import akka.util.Timeout
 import com.github.everpeace.healthchecks._
 import com.github.everpeace.healthchecks.k8s._
+import com.github.everpeace.k8s._
 import com.github.everpeace.k8s.throttler.controller.ThrottleController.{
   CheckThrottleRequest,
   HealthCheckRequest,
@@ -86,21 +87,26 @@ class Routes(
     post {
       entity(as[v1.ExtenderArgs]) { extenderArgs =>
         val pod = extenderArgs.pod
-
+        system.log.info("checking throttle status for pod {}", pod.key)
         onComplete(throttleController ? CheckThrottleRequest(pod)) {
           // some throttles are active!!  no nodes are schedulable
           case Success(Throttled(p, activeThrottles)) if p == pod =>
             val throttleNames = activeThrottles.map(_.name).mkString(",")
-            val message       = s"pod is unschedulable due to throttles=$throttleNames"
+            val message       = s"pod ${pod.key} is unschedulable due to throttles=$throttleNames"
+            system.log.info(message)
             complete(unSchedulableResult(extenderArgs, message))
 
           // no throttles are active!!  all nodes are schedulable.
           case Success(NotThrottled(p)) if p == pod =>
+            system.log.info("pod {} is schedulable because no 'throttled' throttles for the pod.",
+                            pod.key)
             complete(schedulableResult(extenderArgs))
 
           // failure.  no nodes are schedulable.
           case Failure(exp) =>
-            val message = s"exception occurred in checking throttles: ${exp.getMessage}"
+            val message =
+              s"exception occurred in checking throttles for pod ${pod.key}: ${exp.getMessage}"
+            system.log.error(message)
             complete(unSchedulableResult(extenderArgs, message))
         }
       }

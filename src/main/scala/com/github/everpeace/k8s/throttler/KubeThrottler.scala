@@ -20,13 +20,12 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.stream.ActorMaterializer
 import com.github.everpeace.k8s.throttler.controller.ThrottleController
-import com.typesafe.scalalogging.LazyLogging
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext}
 import scala.util.{Failure, Success}
 
-object KubeThrottler extends App with LazyLogging {
+object KubeThrottler extends App {
   private def gracefulShutdown(
       system: ActorSystem,
       gracefulShutdownDuration: FiniteDuration
@@ -35,13 +34,13 @@ object KubeThrottler extends App with LazyLogging {
     Await.result(system.whenTerminated, gracefulShutdownDuration)
   }
 
-  logger.info("starting kube-throttler")
-
   implicit val system: ActorSystem    = ActorSystem("kube-throttler")
   implicit val mat: ActorMaterializer = ActorMaterializer()
   implicit val ec: ExecutionContext   = system.dispatcher
-  implicit val k8s                    = skuber.k8sInit
+  val logger                          = system.log
+  logger.info("starting kube-throttler")
 
+  val k8s    = skuber.k8sInit
   val config = KubeThrottleConfig(system.settings.config)
 
   scala.sys.addShutdownHook {
@@ -52,7 +51,7 @@ object KubeThrottler extends App with LazyLogging {
     gracefulShutdown(system, config.gracefulShutdownDuration)
   }
 
-  val throttler = system.actorOf(ThrottleController.props, "throttle-controller")
+  val throttler = system.actorOf(ThrottleController.props(k8s), "throttle-controller")
   val routes    = new Routes(throttler, config.throttlerAskTimeout).all
 
   Http().bindAndHandle(routes, config.host, config.port).onComplete {
