@@ -9,11 +9,13 @@ releaseProcess := Seq[ReleaseStep](
   runTest, // : ReleaseStep
   setReleaseVersion, // : ReleaseStep
   commitReleaseVersion, // : ReleaseStep, performs the initial git checks
-  tagRelease, // : ReleaseStep
-  releaseStepCommand("docker:clean"),
-  releaseStepCommand("docker:stage"),
-  releaseStepCommand("docker:build"),
-  releaseStepCommand("docker:publish"),
+  tagRelease,           // : ReleaseStep
+//  NOTE: Travis CI will buld/publish docker images.
+//        See .travis.yml
+//  releaseStepCommand("docker:clean"),
+//  releaseStepCommand("docker:stage"),
+//  releaseStepCommand("docker:build"),
+//  releaseStepCommand("docker:publish"),
   setNextVersion, // : ReleaseStep
   commitNextVersion, // : ReleaseStep
   pushChanges // : ReleaseStep, also checks that an upstream branch is properly configured

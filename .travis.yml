@@ -1,32 +1,34 @@
 sudo: true
-
 services:
 - docker
-
 language: scala
 scala:
-  - 2.12.6
+- 2.12.6
 jdk:
-  - openjdk8
+- openjdk8
 addons:
   apt:
     packages:
-      - oracle-java8-installer
-
+    - oracle-java8-installer
 cache:
   directories:
-    - $HOME/.ivy2/cache
-    - $HOME/.sbt/launchers
-
+  - "$HOME/.ivy2/cache"
+  - "$HOME/.sbt/launchers"
 before_cache:
-  # Tricks to avoid unnecessary cache updates
-  - find $HOME/.sbt -name "*.lock" | xargs rm
-  - find $HOME/.ivy2 -name "ivydata-*.properties" | xargs rm
-
-
-script: sbt ++$TRAVIS_SCALA_VERSION test docker:stage docker:publishLocal
-
+- find $HOME/.sbt -name "*.lock" | xargs rm
+- find $HOME/.ivy2 -name "ivydata-*.properties" | xargs rm
+script:
+- ".travis/test.sh"
+deploy:
+  provider: script
+  script: ".travis/deploy.sh"
+  on:
+    tags: true
+    scala: 2.12.6
 branches:
   only:
   - master
   - develop
+env:
+  global:
+    secure: Ls7ItD8K8WH9pWQXWodmhuHR4oDdKKXf88/woThC5g5ZyNnLeEk7tL2X38hiH17DdF/nX7p86i0RKFk7FsJ2QBnkf7O5zjAOee3QuE5fsvmMojlA8A+pfNV4Dd5GHyFQWPdpZguFzns6U/PCogkJ36/+sfpd2whYrRRzfKS6mj6CJ6pjaNxvFHHAATHectS4wk/tiEIQl04ClM2pDKhTXHKD2x2fKIhND5FxAnQUnCmNt6I7vyNdHVvl+bo92Oga+JTo5u79B3rHo1FcrA8ClX4Z9HHZKpEJCo3nB/MgpkC0eeqhgoridzvqqR85S0SyADOWTyX/9y4dopeIefRav4+IYOIsC617mOALqmQBi+k23CK9rrroVLiv3c+4htF1NPdJ+9rVOGbUY0fjk8u1ttQGIvB4GlCWwbuSQVG8w8O7wcNq3B1iWtvy9crU5SL361t6sK2ij/xTZu1iSS+ISSsQ/GewIc+y0IcMzJPtUMpWSKNPFQ/NpWqIcj2RqfPGMFsGs6IYbXSKnoVWrZFj3OkF454g151au3QsYCUOulTqAsL+sA0B3H+Db8IA0OHJ+dVbBP74qJDH2vzRLeL9e5mFXubnm45Xzg46PtsVoNGXEFoLPEb3nfStMyM+ZTLKb6fGDlcxEHnoBX+nLgoGlU41BsDTH+/KC9HQWjVV+ng=
