@@ -1,6 +1,6 @@
 # kube-throttler : throttling your pods in kubernetes cluster.
 [![Build Status](https://travis-ci.org/everpeace/kube-throttler.svg?branch=master)](https://travis-ci.org/everpeace/kube-throttler) 
-[![MicroBadger Size](https://img.shields.io/microbadger/image-size/everpeace/kube-throttler.svg)](https://hub.docker.com/r/everpeace/kube-throttler/)
+[![Docker Pulls](https://img.shields.io/docker/pulls/everpeace/kube-throttler.svg)](https://hub.docker.com/r/everpeace/kube-throttler/)
 
 `kube-throttler` enables you to throttle your pods.   It means that `kube-throttler` can prohibit to schedule any pods when it detects total amount of computational resource of `Running` pods exceeds a threshold (in terms of `resources.requests` field). 
 
