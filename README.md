@@ -67,6 +67,9 @@ please see [example/my-scheudler.yaml](example/my-scheduler.yaml) for complete e
 - a set of pods to which the throttle affects by `selector`
 - threshold of amount of `request`-ed computational resource of the throttle
 
+And it also has `status` field:
+ 
+- `status` filed shows throttle status for each resources defined in threshold setting and current total usage of `reauest`-ed resource of `Running` pods matching `selector`
 
 ```yaml
 # example/throttle.yaml
@@ -83,7 +86,17 @@ spec:
   # limiting total amount of resource whichRunning pods can `requests` 
   threshold:
     cpu: 200m
-
+status:
+  # 'throttled' shows throttle status for each resource defined in spec.threshold.
+  # when you tried to create a pod, all your 'request'-ed resource's throttle 
+  # should not throttled
+  throttled:
+    cpu: true
+  # 'used' shows total 'request'-ed resource amount of 'Running' pods 
+  # matching spec.selector
+  used:
+    cpu: 300m
+    memory: 10Gi
 ```
 
 ## How `kube-throttler` works
@@ -113,7 +126,8 @@ spec:
   threshold:
     cpu: 200m
 status:
-  throttled: false
+  throttled:
+    cpu: false
   used: {}
 ```
 

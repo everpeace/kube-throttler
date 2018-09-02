@@ -26,7 +26,7 @@ object Throttle {
 
   case class Spec(selector: LabelSelector, threshold: ResourceList)
 
-  case class Status(throttled: Boolean, used: ResourceList)
+  case class Status(throttled: Map[String, Boolean], used: ResourceList)
 
   val crd: CustomResourceDefinition = CustomResourceDefinition[v1alpha1.Throttle]
 

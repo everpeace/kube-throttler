@@ -225,11 +225,8 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
 
   def requestHandler: Receive = {
     case CheckThrottleRequest(pod) =>
-      // just checking throttle is active or not.
-      // throttle status is changed withing eventHandler
-      val throttlesInNamespace = cache.throttles.toImmutable.getOrElse(pod.namespace, Set.empty)
-      val maybeAffected        = throttlesInNamespace.filter(_.spec.selector.matches(pod.metadata.labels))
-      val activeThrottles      = maybeAffected.filter(_.status.exists(_.throttled))
+      val throttlesInNs   = cache.throttles.toImmutable.getOrElse(pod.namespace, Set.empty)
+      val activeThrottles = throttlesInNs.filter(isActiveFor(pod, _))
       if (activeThrottles.nonEmpty) {
         sender ! Throttled(pod, activeThrottles)
       } else {
@@ -337,6 +334,12 @@ object ThrottleController {
 
 trait ThrottleControllerLogic {
 
+  def isActiveFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean = {
+    throttle.spec.selector.matches(pod.metadata.labels) && throttle.status.exists { st =>
+      pod.totalRequests.keys.map(rs => st.throttled.getOrElse(rs, false)).exists(_ == true)
+    }
+  }
+
   def calcNextThrottleStatuses(
       targetThrottles: Set[v1alpha1.Throttle],
       podsInNs: Set[Pod]
@@ -348,24 +351,23 @@ trait ThrottleControllerLogic {
       matchedPods  = podsInNs.filter(p => throttle.spec.selector.matches(p.metadata.labels))
       running      = matchedPods.filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
       usedResource = running.map(_.totalRequests).foldLeft(Map.empty: ResourceList)(_ add _)
-      nextStatus = (usedResource tryCompare throttle.spec.threshold)
-        .map {
-          case v if v <= 0 =>
-            v1alpha1.Throttle.Status(
-              throttled = false,
-              used = usedResource
-            )
-          case _ =>
-            v1alpha1.Throttle.Status(
-              throttled = true,
-              used = usedResource
-            )
+
+      throttled = throttle.spec.threshold.keys.map { resource =>
+        if (usedResource.contains(resource)) {
+          if (usedResource(resource) < throttle.spec.threshold(resource)) {
+            resource -> false
+          } else {
+            resource -> true
+          }
+        } else {
+          resource -> false
         }
-        .getOrElse(
-          v1alpha1.Throttle.Status(
-            throttled = false,
-            used = usedResource
-          ))
+      }.toMap
+      nextStatus = v1alpha1.Throttle.Status(
+        throttled = throttled,
+        used = usedResource
+      )
+
       toUpdate <- if (throttle.status != Option(nextStatus)) {
                    List(throttle.key -> nextStatus)
                  } else {

@@ -43,12 +43,16 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
            |    },
            |    "threshold": {
            |      "cpu": "10",
-           |      "memory": "10Gi",
+           |      "memory": "15Gi",
            |      "nvidia.com/gpu": "10"
            |    }
            |  },
            |  "status": {
-           |    "throttled": true,
+           |    "throttled": {
+           |      "cpu": true,
+           |      "memory": false,
+           |      "nvidia.com/gpu": true
+           |    },
            |    "used": {
            |      "cpu": "12",
            |      "memory": "12Gi",
@@ -65,21 +69,24 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
             selector = LabelSelector(IsEqualRequirement("key", "value")),
             threshold = Map(
               "cpu"            -> Quantity("10"),
-              "memory"         -> Quantity("10Gi"),
+              "memory"         -> Quantity("15Gi"),
               "nvidia.com/gpu" -> Quantity("10")
             )
           )
         )
         .withNamespace("default")
-        .withStatus(
-          v1alpha1.Throttle.Status(
-            throttled = true,
-            used = Map(
-              "cpu"            -> Quantity("12"),
-              "memory"         -> Quantity("12Gi"),
-              "nvidia.com/gpu" -> Quantity("12")
-            )
-          ))
+        .withStatus(v1alpha1.Throttle.Status(
+          throttled = Map(
+            "cpu"            -> true,
+            "memory"         -> false,
+            "nvidia.com/gpu" -> true
+          ),
+          used = Map(
+            "cpu"            -> Quantity("12"),
+            "memory"         -> Quantity("12Gi"),
+            "nvidia.com/gpu" -> Quantity("12")
+          )
+        ))
 
       json.validate[v1alpha1.Throttle].get shouldBe obj
       Json.toJson(obj) shouldBe json

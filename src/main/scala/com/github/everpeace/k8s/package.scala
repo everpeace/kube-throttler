@@ -16,7 +16,6 @@
 
 package com.github.everpeace
 
-import cats.implicits._
 import skuber.LabelSelector._
 import skuber.Resource.{Quantity, ResourceList}
 import skuber.{LabelSelector, ObjectResource, Pod}
@@ -81,22 +80,4 @@ package object k8s {
     override def compare(x: Quantity, y: Quantity): Int = x.amount.compare(y.amount)
   }
 
-  implicit val resourceListOrder: cats.PartialOrder[ResourceList] =
-    new cats.PartialOrder[ResourceList] {
-      override def partialCompare(x: ResourceList, y: ResourceList): Double = {
-        val commonResources = x.keySet.intersect(y.keySet)
-        if (commonResources.isEmpty) {
-          Double.NaN
-        } else {
-          val compareResults = commonResources.map(k => x(k) compare y(k))
-          if (compareResults.forall(_ == 0)) {
-            0d
-          } else if (compareResults.forall(_ < 0)) {
-            -1d
-          } else {
-            1d
-          }
-        }
-      }
-    }
 }

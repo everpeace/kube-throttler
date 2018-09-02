@@ -42,8 +42,8 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
       .withNamespace(p.namespace)
       .withStatus(
         v1alpha1.Throttle.Status(
-          throttled = true,
-          used = Map("cpu" -> Quantity("2"))
+          throttled = Map("cpu" -> true),
+          used = Map("cpu"      -> Quantity("2"))
         ))
   }
 
