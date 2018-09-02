@@ -121,10 +121,15 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
       }
 
       "should throttle when total `requests` of running pods equal to its threshold" in {
-        val pod = mkPod(List(resourceRequirements(Map("r" -> Quantity("2"))))).copy(
+        val pod1 = mkPod(List(resourceRequirements(Map("r" -> Quantity("1"))))).copy(
           metadata = commonMeta,
           status = phase(Pod.Phase.Running)
         )
+        val pod2 = mkPod(List(resourceRequirements(Map("r" -> Quantity("1"))))).copy(
+          metadata = commonMeta.copy(name = "dummy2"),
+          status = phase(Pod.Phase.Running)
+        )
+
         val throttle = v1alpha1
           .Throttle(
             "t1",
@@ -136,7 +141,7 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
           .withNamespace("default")
           .withName("t1")
 
-        val podsInNs      = Set(pod)
+        val podsInNs      = Set(pod1, pod2)
         val throttlesInNs = Set(throttle)
         val expectedStatus = v1alpha1.Throttle.Status(
           throttled = Map("r" -> true, "s" -> false),

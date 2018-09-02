@@ -350,7 +350,7 @@ trait ThrottleControllerLogic {
 
       matchedPods  = podsInNs.filter(p => throttle.spec.selector.matches(p.metadata.labels))
       running      = matchedPods.filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
-      usedResource = running.map(_.totalRequests).foldLeft(Map.empty: ResourceList)(_ add _)
+      usedResource = running.toList.map(_.totalRequests).foldLeft(Map.empty: ResourceList)(_ add _)
 
       throttled = throttle.spec.threshold.keys.map { resource =>
         if (usedResource.contains(resource)) {
