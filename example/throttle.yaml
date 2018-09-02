@@ -8,3 +8,5 @@ spec:
       throttle: t1
   threshold:
     cpu: 200m
+    memory: 1Gi
+

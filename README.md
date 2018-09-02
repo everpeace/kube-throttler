@@ -102,10 +102,11 @@ status:
 ## How `kube-throttler` works
 I describe a simple scenario here.
 
-- define a throttle `t1` which targets `throttle=t1` label and threshold `cpu=200m`.
+- define a throttle `t1` which targets `throttle=t1` label and threshold `cpu=200m` and `memory=1Gi`.
 - create `pod1` with the same label and `requests` `cpu=300m`
-- then, `t1` status will transition to `throttled: true` because total amount of running pods exceeds its threshold. 
-- create `pod2` with the same label and `requests` `cpu=300m` and see the pod stays `Pending` state because it was throttled.
+- then, `t1` status will transition to `throttled: cpu: true` because total amount of `cpu` of running pods exceeds its threshold. 
+- create `pod2` with the same label and `requests` `cpu=300m` and see the pod stays `Pending` state because `cpu` was throttled.
+- create `pod1m` with same label and `requests` `memory=512Mi`.  ane see the pod will be scheduled because `t1` is throttled only on `cpu` and `memory` is not throttled.
 - update `t1` threshold with `cpu=700m`, then throttle will open and see `pod2` will be scheduled.
 
 Lets' create `Thrttle` first. 
@@ -125,6 +126,7 @@ spec:
       throttle: t1
   threshold:
     cpu: 200m
+    memory: 1Gi
 status:
   throttled:
     cpu: false
@@ -137,13 +139,15 @@ Then, create a pods with label `throttle=t1` and `requests` `cpu=300m`.
 kubectl create -f example/gen-pod.yaml
 ```
 
-after a while, you can see throttle `t1` will be activated.
+after a while, you can see throttle `t1` will be activated on `cpu`.
 
 ```shell
 $ kubectl get throttle t1 -o yaml
 ...
 status:
-  throttled: true
+  throttled:
+    cpu: true
+    memory: false
   used:
     cpu: "0.300"
 ```
@@ -158,6 +162,24 @@ Events:
   Type     Reason            Age               From               Message
   ----     ------            ----              ----               -------
   Warning  FailedScheduling  14s (x9 over 1m)  my-scheduler       pod is unschedulable due to throttles=t1
+```
+
+In this situation, you can run `pod1m` requesting `memory=512Mi` because `t1`'s `memory` throttle is not throttled.
+
+```shell
+$ kubectl create -f example/pod1m.yaml
+$ k get po pod1m
+NAME      READY     STATUS    RESTARTS   AGE
+pod1m     1/1       Running   0          24s
+$ k get throttle t1 -o yaml
+...
+status:
+  throttled:
+    cpu: true
+    memory: false
+  used:
+    cpu: "0.300"
+    memory: "536870912"
 ```
 
 Then, update `t1` threshold with `cpu=700m`
@@ -189,10 +211,14 @@ spec:
       throttle: t1
   threshold:
     cpu: 700m
+    memory: 1Gi
 status:
-  throttled: false
+  throttled: 
+    cpu: false
+    memory: false
   used:
     cpu: "0.600"
+    memory: "536870912"
 ``` 
 
 # License
