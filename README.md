@@ -221,6 +221,27 @@ status:
     memory: "536870912"
 ``` 
 
+
+## Monitoring with Prometheus
+`kube-throttler` exports prometheus metrics powered by [Kamon](https://kamon.io/). metrics are served on `http://kube-throttler.kube-throttler.svc:9095/metrics`.
+
+`kube-throttler` exports metrics below:
+
+| metrics name | definition | example |
+--------------|------------|---------   
+| throttle_status_throttled | the throttle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`throttle_status_throttled{name="t1", namespace="default",uuid="...",resource="cpu"} 1.0`     
+| throttle_status_used | used amount of resource of the throttle |`throttle_status_used{name="t1", namespace="default",uuid="...",resource="cpu"} 200`     
+| throttle_spec_threshold | threshold on specific resource of the throttle |`throttle_spec_threshold{name="t1", namespace="default",uuid="...",resource="cpu"} 200`     
+
+other metrics exported by [kamon-system-metrics](https://github.com/kamon-io/kamon-system-metrics), [kamon-akka](https://github.com/kamon-io/kamon-akka), [kamon-akka-http](https://github.com/kamon-io/kamon-akka-http) are available.
+
+### `ServiceMonitor` of Prometheus Operator 
+Used [prometheus-operator](https://github.com/coreos/prometheus-operator), this repository ships `ServiceMonitor` spec.  So, setup is super easy.
+
+```shell
+kubectl create -f prometheus/servicemonitor.yaml
+```
+
 # License
 
 Apache License 2.0

@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kube-throttler
+  namespace: kube-throttler
+  # this label should match with
+  # spec.serviceMonitorSelector of your Prometheus resource
+  labels:
+    app: kube-throttler
+spec:
+  selector:
+    matchLabels:
+      app: kube-throttler
+  endpoints:
+  - port: prometheus

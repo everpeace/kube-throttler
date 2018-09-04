@@ -29,7 +29,7 @@ data:
       "kind" : "Policy",
       "apiVersion" : "v1",
       "extenders" : [{
-        "urlPrefix": "http://extender.kube-throttler/",
+        "urlPrefix": "http://kube-throttler.kube-throttler/",
         "filterVerb": "check_throttle",
         "prioritizeVerb": "",
         "preemptVerb": "",

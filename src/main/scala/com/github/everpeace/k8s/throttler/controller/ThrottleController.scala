@@ -26,6 +26,7 @@ import com.github.everpeace.k8s._
 import com.github.everpeace.k8s.throttler.controller.ThrottleController._
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
+import kamon.Kamon
 import play.api.libs.json.Format
 import skuber.Resource.ResourceList
 import skuber.ResourceSpecification.Subresources
@@ -40,7 +41,8 @@ import scala.util.{Failure, Success, Try}
 class ThrottleController(implicit val k8s: K8SRequestContext)
     extends Actor
     with ActorLogging
-    with ThrottleControllerLogic {
+    with ThrottleControllerLogic
+    with ThrottleControllerMetrics {
 
   implicit private val system = context.system
   implicit private val mat    = ActorMaterializer()
@@ -123,6 +125,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
     fut.onComplete {
       case Success(thr) =>
         log.info("successfully updated throttle {} with status {}", thr.key, thr.status)
+        recordStatusMetric(thr)
       case Failure(ex) =>
         log.error("failed updating throttle {} with status {} by {}", key, Option(st), ex)
     }
@@ -146,6 +149,11 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
 
     fut.onComplete {
       case Success(_) =>
+        // update all metrics when reconciling
+        cache.throttles.toImmutable.values.foreach(_.foreach { thr =>
+          recordSpecMetric(thr)
+          recordStatusMetric(thr)
+        })
         log.info("finished reconciling throttle statuses.")
       case Failure(ex) =>
         log.error("failed reconciling throttle statues by: {}", ex)
@@ -204,6 +212,14 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
       }
       updateOrRemoveCacheThen { throttle =>
         updateThrottleBecauseOf(throttle)
+        e._type match {
+          case EventType.DELETED =>
+            log.info(
+              s"resetting all metrics for ${throttle.key} because detecting ${throttle.key} was DELETED.")
+            resetMetric(e._object)
+          case _ =>
+            recordSpecMetric(e._object)
+        }
       }
   }
 
@@ -332,8 +348,91 @@ object ThrottleController {
   }
 }
 
-trait ThrottleControllerLogic {
+trait ThrottleControllerMetrics {
+  self: {
+    def log: {
+      def info(s: String): Unit
+      def debug(s: String): Unit
+    }
+  } =>
 
+  def resetMetric(throttle: v1alpha1.Throttle): Unit = {
+    val zeroSpec = throttle.spec.copy(
+      threshold = throttle.spec.threshold.mapValues(_ => Resource.Quantity("0")),
+      selector = throttle.spec.selector
+    )
+
+    val zeroFalseStatus = throttle.status.map(
+      st =>
+        st.copy(
+          throttled = st.throttled.mapValues(_ => false),
+          used = st.used.mapValues(_ => Resource.Quantity("0"))
+      ))
+    val zero = throttle.copy(
+      spec = zeroSpec,
+      status = zeroFalseStatus
+    )
+
+    recordSpecMetric(zero)
+    recordStatusMetric(zero)
+  }
+
+  def recordSpecMetric(throttle: v1alpha1.Throttle): Unit = {
+    val metadataTags   = metadataTagsFor(throttle)
+    val thresholdGauge = Kamon.gauge("throttle.spec.threshold")
+
+    throttle.spec.threshold.foreach { rq =>
+      val tags  = metadataTags ++ resourceQuantityToTag(rq)
+      val value = resourceQuantityToLong(rq)
+      log.info(
+        s"setting gauge '${thresholdGauge.name}{${tags.values.mkString(",")}}' value with ${value}")
+      thresholdGauge.refine(tags).set(value)
+    }
+  }
+
+  def recordStatusMetric(throttle: v1alpha1.Throttle): Unit = {
+    val metadataTags = metadataTagsFor(throttle)
+    val statusGauge  = Kamon.gauge("throttle.status.throttled")
+    val usedGauge    = Kamon.gauge("throttle.status.used")
+    val b2i          = (b: Boolean) => b compare false
+    throttle.status.foreach { status =>
+      status.throttled.foreach { rq =>
+        val tags = metadataTags ++ resourceQuantityToTag(rq)
+        log.info(
+          s"setting gauge '${statusGauge.name}{${tags.values.mkString(",")}}' value with ${b2i(rq._2)}")
+        statusGauge.refine(tags).set(b2i(rq._2))
+      }
+
+      status.used.foreach { rq =>
+        val tags  = metadataTags ++ resourceQuantityToTag(rq)
+        val value = resourceQuantityToLong(rq)
+        log.debug(
+          s"setting gauge '${usedGauge.name}{${tags.values.mkString(",")}}' value with ${value}")
+        usedGauge.refine(tags).set(value)
+      }
+    }
+  }
+
+  def resourceQuantityToLong(q: (String, Resource.Quantity)): Long = q._1 match {
+    case Resource.cpu =>
+      (q._2.amount * 1000).toLong // convert to milli
+    case _ => q._2.amount.toLong
+  }
+
+  def resourceQuantityToTag(q: (String, _)): kamon.Tags = Map("resource" -> q._1)
+
+  def metadataTagsFor(throttle: v1alpha1.Throttle): kamon.Tags = {
+    val metadata = List(
+      "name"      -> throttle.metadata.name,
+      "namespace" -> throttle.metadata.namespace,
+      "uuid"      -> throttle.metadata.uid
+    ).toMap ++ throttle.metadata.clusterName.map(cn => Map("cluster" -> cn)).getOrElse(Map.empty)
+
+    metadata ++ throttle.metadata.labels ++ throttle.metadata.annotations
+  }
+}
+
+trait ThrottleControllerLogic {
   def isActiveFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean = {
     throttle.spec.selector.matches(pod.metadata.labels) && throttle.status.exists { st =>
       pod.totalRequests.keys.map(rs => st.throttled.getOrElse(rs, false)).exists(_ == true)
