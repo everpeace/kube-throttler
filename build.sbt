@@ -1,7 +1,7 @@
 import Dependencies._
 
 lazy val root = (project in file("."))
-  .enablePlugins(JavaAppPackaging, AshScriptPlugin, DockerPlugin, AutomateHeaderPlugin)
+  .enablePlugins(JavaAgent, JavaAppPackaging, AshScriptPlugin, DockerPlugin, AutomateHeaderPlugin)
   .settings(
     name := "kube-throttler",
     inThisBuild(
@@ -9,6 +9,10 @@ lazy val root = (project in file("."))
         organization := "com.github.everpeace",
         scalaVersion := "2.12.6"
       )),
+    // run options
+    fork in run := true,
+    javaAgents += "org.aspectj" % "aspectjweaver" % "1.8.13",
+    javaOptions in Universal += "-Dorg.aspectj.tracing.factory=default",
     //
     // compile options
     //
@@ -35,11 +39,17 @@ lazy val root = (project in file("."))
       akkHttpPlayJson,
       healthchecks.core,
       healthchecks.probe,
+      kamon.core,
+      kamon.systemMetrics,
+      kamon.akka,
+      kamon.akkaHttp,
+      kamon.prometheus,
       logback,
       scalaLogging
     ) ++ Seq(
-      scalaTest       % Test,
-      akkaHttpTestKit % Test
+      scalaTest         % Test,
+      akkaHttpTestKit   % Test,
+      kamon.logReporter % Test
     ),
     //
     // sbt-header
@@ -76,8 +86,12 @@ lazy val root = (project in file("."))
     dockerUsername := Some("everpeace"),
     packageName in Docker := "kube-throttler",
     maintainer in Docker := "Shingo Omura <https://github.com/everpeace>",
-    dockerBaseImage := "openjdk:8-jdk-alpine",
-    dockerExposedPorts := Seq(4321, 5005 /* for jvm debug */ ),
+    dockerBaseImage := "frolvlad/alpine-oraclejdk8:8.181.13-slim",
+    dockerExposedPorts := Seq(
+      4321 /* kube-throttle (kube-scheduler extender) */,
+      5005 /* for jvm debug */,
+      9095 /* prometheus */
+    ),
     dockerUpdateLatest := true,
     bashScriptExtraDefines += """addJava "-Dconfig.file=${app_home}/../conf/application.conf"""",
     //

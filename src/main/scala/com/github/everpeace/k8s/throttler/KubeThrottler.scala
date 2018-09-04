@@ -20,12 +20,18 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.stream.ActorMaterializer
 import com.github.everpeace.k8s.throttler.controller.ThrottleController
+import kamon.Kamon
+import kamon.prometheus.PrometheusReporter
+import kamon.system.SystemMetrics
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext}
 import scala.util.{Failure, Success}
 
 object KubeThrottler extends App {
+  Kamon.addReporter(new PrometheusReporter())
+  SystemMetrics.startCollecting()
+
   private def gracefulShutdown(
       system: ActorSystem,
       gracefulShutdownDuration: FiniteDuration
