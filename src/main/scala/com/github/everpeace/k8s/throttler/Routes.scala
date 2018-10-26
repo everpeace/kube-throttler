@@ -57,7 +57,7 @@ class Routes(
   def all =
     readinessProbe(checkController).toRoute ~ livenessProbe(checkController).toRoute ~ checkThrottle
 
-  def unSchedulableResult(arg: ExtenderArgs, message: String): v1.ExtenderFilterResult = {
+  def errorResult(arg: ExtenderArgs, message: String): v1.ExtenderFilterResult = {
     val nodeNames = if (arg.nodes.nonEmpty) {
       arg.nodes.get.items.map(_.name)
     } else {
@@ -72,6 +72,23 @@ class Routes(
       nodenames = List.empty,
       failedNodes = nodeNames.map(nodeName => nodeName -> message).toMap,
       error = Option(message)
+    )
+  }
+
+  def unSchedulableResult(arg: ExtenderArgs, message: String): v1.ExtenderFilterResult = {
+    val nodeNames = if (arg.nodes.nonEmpty) {
+      arg.nodes.get.items.map(_.name)
+    } else {
+      arg.nodenames
+    }
+
+    v1.ExtenderFilterResult(
+      nodes = arg.nodes.map(
+        _.copy(
+          items = List.empty
+        )),
+      nodenames = List.empty,
+      failedNodes = nodeNames.map(nodeName => nodeName -> message).toMap
     )
   }
 
@@ -107,7 +124,7 @@ class Routes(
             val message =
               s"exception occurred in checking throttles for pod ${pod.key}: ${exp.getMessage}"
             system.log.error(message)
-            complete(unSchedulableResult(extenderArgs, message))
+            complete(errorResult(extenderArgs, message))
         }
       }
     }

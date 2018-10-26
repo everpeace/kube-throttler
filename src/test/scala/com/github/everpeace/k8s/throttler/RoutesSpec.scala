@@ -16,8 +16,9 @@
 
 package com.github.everpeace.k8s.throttler
 import akka.actor.{Actor, Props}
+import akka.testkit._
 import akka.http.scaladsl.model._
-import akka.http.scaladsl.testkit.ScalatestRouteTest
+import akka.http.scaladsl.testkit.{RouteTestTimeout, ScalatestRouteTest}
 import akka.util.{ByteString, Timeout}
 import com.github.everpeace.k8s.throttler.controller.ThrottleController
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
@@ -53,13 +54,15 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
         sender() ! ThrottleController.Throttled(p, Set(dummyActiveThrottleFor(p)))
       case ThrottleController.CheckThrottleRequest(p) if p.name == "not-throttled" =>
         sender() ! ThrottleController.NotThrottled(p)
+      case ThrottleController.CheckThrottleRequest(p) if p.name == "timeout" =>
+      // timeout
     }
-  }))
+  }), "dummyThrottleController")
 
   val checkThrottleRoute = new Routes(dummyThrottleController, Timeout(1 second)).checkThrottle
 
   "check_throttle" - {
-    "should return ExtenderFilterResult without Errors" in {
+    "should return ExtenderFilterResult without FailedNodes and Errors" in {
 
       val requestBody = """|{
                          |  "Pod": {
@@ -104,7 +107,7 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
       }
     }
 
-    "should return ExtenderFilterResult with Errors" in {
+    "should return ExtenderFilterResult with FailedNodes and without Errors" in {
       val requestBody = """|{
                            |  "Pod": {
                            |    "metadata": {
@@ -147,8 +150,58 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
           ),
           failedNodes =
             Map("minikube" -> "pod (default,throttled) is unschedulable due to throttles=throttle"),
-          error = Some("pod (default,throttled) is unschedulable due to throttles=throttle")
+          error = None
         )
+      }
+    }
+
+    "should return ExtenderFilterResult with FailedNodes and Errors" in {
+      val requestBody = """|{
+                           |  "Pod": {
+                           |    "metadata": {
+                           |      "name": "timeout",
+                           |      "namespace": "default"
+                           |    }
+                           |  },
+                           |  "NodeNames": [ "minikube" ],
+                           |  "Nodes": {
+                           |    "metadata": {},
+                           |    "items": [
+                           |      {
+                           |        "metadata": {
+                           |          "name": "minikube"
+                           |        }
+                           |      }
+                           |    ]
+                           |  }
+                           |}
+                           |""".stripMargin
+
+      val request = HttpRequest(HttpMethods.POST,
+                                "/check_throttle",
+                                entity = HttpEntity(
+                                  MediaTypes.`application/json`,
+                                  ByteString(requestBody)
+                                ))
+
+      implicit val timeout = RouteTestTimeout(3.seconds.dilated)
+      val messageHead = """exception occurred in checking throttles for pod (default,timeout): Ask timed out on"""
+
+      request ~> checkThrottleRoute ~> check {
+        status shouldBe StatusCodes.OK
+        val result = responseAs[ExtenderFilterResult]
+        result.nodenames shouldBe List.empty
+        result.nodes shouldBe Option(
+          ListResource[Node](
+            apiVersion = "v1",
+            kind = "NodeList",
+            metadata = Option(ListMeta()),
+            items = List.empty
+          )
+        )
+        result.failedNodes.size shouldBe 1
+        result.failedNodes("minikube") should startWith (messageHead)
+        result.error.get should startWith (messageHead)
       }
     }
   }
