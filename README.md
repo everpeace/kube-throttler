@@ -249,5 +249,8 @@ Apache License 2.0
 
 # Change Logs
 
+## `0.1.1`
+- fixed returning filter error when normal throttled situation.
+
 ## `0.1.0`
 first public release.
