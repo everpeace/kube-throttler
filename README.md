@@ -249,4 +249,5 @@ Apache License 2.0
 
 # Change Logs
 
-_no public releases yet_
+## `0.1.0`
+first public release.
