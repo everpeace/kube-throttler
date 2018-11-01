@@ -254,8 +254,12 @@ kubectl create -f prometheus/servicemonitor.yaml
 
 Apache License 2.0
 
-
 # Change Logs
+
+## `0.1.2`
+- multi-throttler, multi-scheduler deployment support
+  - `throttlerName` is introduced in `Throttle` CRD
+  - `throttler-name` and `target-scheduler-names` are introduced in throttler configuration
 
 ## `0.1.1`
 - fixed returning filter error when normal throttled situation.
