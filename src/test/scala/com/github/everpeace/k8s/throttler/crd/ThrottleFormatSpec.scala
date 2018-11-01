@@ -36,6 +36,7 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
            |    "name": "app-throttle"
            |  },
            |  "spec": {
+           |    "throttlerName": "kube-throttler",
            |    "selector": {
            |      "matchLabels": {
            |        "key": "value"
@@ -66,6 +67,7 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
         .Throttle(
           name = "app-throttle",
           spec = v1alpha1.Throttle.Spec(
+            throttlerName = "kube-throttler",
             selector = LabelSelector(IsEqualRequirement("key", "value")),
             threshold = Map(
               "cpu"            -> Quantity("10"),

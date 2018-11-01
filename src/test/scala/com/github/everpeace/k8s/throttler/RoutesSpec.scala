@@ -37,6 +37,7 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
     v1alpha1
       .Throttle("throttle",
                 v1alpha1.Throttle.Spec(
+                  throttlerName = "kube-throttler",
                   selector = LabelSelector(),
                   threshold = Map("cpu" -> Quantity("1"))
                 ))
@@ -48,16 +49,19 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
         ))
   }
 
-  val dummyThrottleController = system.actorOf(Props(new Actor {
-    override def receive: Receive = {
-      case ThrottleController.CheckThrottleRequest(p) if p.name == "throttled" =>
-        sender() ! ThrottleController.Throttled(p, Set(dummyActiveThrottleFor(p)))
-      case ThrottleController.CheckThrottleRequest(p) if p.name == "not-throttled" =>
-        sender() ! ThrottleController.NotThrottled(p)
-      case ThrottleController.CheckThrottleRequest(p) if p.name == "timeout" =>
-      // timeout
-    }
-  }), "dummyThrottleController")
+  val dummyThrottleController = system.actorOf(
+    Props(new Actor {
+      override def receive: Receive = {
+        case ThrottleController.CheckThrottleRequest(p) if p.name == "throttled" =>
+          sender() ! ThrottleController.Throttled(p, Set(dummyActiveThrottleFor(p)))
+        case ThrottleController.CheckThrottleRequest(p) if p.name == "not-throttled" =>
+          sender() ! ThrottleController.NotThrottled(p)
+        case ThrottleController.CheckThrottleRequest(p) if p.name == "timeout" =>
+        // timeout
+      }
+    }),
+    "dummyThrottleController"
+  )
 
   val checkThrottleRoute = new Routes(dummyThrottleController, Timeout(1 second)).checkThrottle
 
@@ -185,7 +189,8 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
                                 ))
 
       implicit val timeout = RouteTestTimeout(3.seconds.dilated)
-      val messageHead = """exception occurred in checking throttles for pod (default,timeout): Ask timed out on"""
+      val messageHead =
+        """exception occurred in checking throttles for pod (default,timeout): Ask timed out on"""
 
       request ~> checkThrottleRoute ~> check {
         status shouldBe StatusCodes.OK
@@ -200,8 +205,8 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
           )
         )
         result.failedNodes.size shouldBe 1
-        result.failedNodes("minikube") should startWith (messageHead)
-        result.error.get should startWith (messageHead)
+        result.failedNodes("minikube") should startWith(messageHead)
+        result.error.get should startWith(messageHead)
       }
     }
   }

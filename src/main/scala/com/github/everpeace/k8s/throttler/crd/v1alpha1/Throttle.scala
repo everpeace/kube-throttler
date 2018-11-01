@@ -24,7 +24,7 @@ import skuber.{CustomResource, LabelSelector}
 
 object Throttle {
 
-  case class Spec(selector: LabelSelector, threshold: ResourceList)
+  case class Spec(throttlerName: String, selector: LabelSelector, threshold: ResourceList)
 
   case class Status(throttled: Map[String, Boolean], used: ResourceList)
 

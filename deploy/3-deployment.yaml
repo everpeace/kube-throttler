@@ -29,6 +29,11 @@ data:
     -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005
   application.conf: |
       kube-throttler {
+        # throttler name, the throttler instance is responsible for 'Throttle's with spec.throttleName equals to the name
+        throttler-name = "kube-throttler"
+        # target scheduler names, the throttler instance only counts running pods which is responsible for this scheduler names.
+        target-scheduler-names = [ "my-scheduler" ]
+
         graceful-shutdown-duration = 30 s
         ask-timeout = 10 s
         host = "0.0.0.0"
@@ -87,7 +92,7 @@ spec:
       containers:
       - name: ctr
         image: everpeace/kube-throttler:latest
-        imagePullPolicy: Always
+        imagePullPolicy: IfNotPresent
         ports:
         - name: extender
           containerPort: 4321

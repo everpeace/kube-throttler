@@ -33,6 +33,9 @@ This creates:
 - `kube-throttler` namespace, service accounts, RBAC entries
   - this will create a cluster role and cluster role binding.  please see [deploy/2-rbac.yaml](deploy/2-rbac.yaml) for detail.
 - `kube-throttller` deployment and its service so that kubernetes scheduler connect to it.
+  - its throttler name is `kube-throttler`
+  - its target scheduler is `my-scheduler`  (this throttler only counts running pods which is responsible for `my-scheduler`)
+  - if you want to change this, please see [`application.conf`  in `kube-throttler-application-ini` configmap](deploy/3-deployment.yaml) 
 
 
 ### 2. configure your `kube-scheduler`
@@ -62,9 +65,11 @@ This creates:
 please see [example/my-scheudler.yaml](example/my-scheduler.yaml) for complete example.
 
 ## `Throttle` CRD
-`Throttle` custom resources define two things:
+a `Throttle` custom resource defines three things:
 
+- throttler name which is responsible for this `Throttle` custom resource.
 - a set of pods to which the throttle affects by `selector`
+  - please note that throttler only counts running pods which is responsible for configured target scheduler names.
 - threshold of amount of `request`-ed computational resource of the throttle
 
 And it also has `status` field:
@@ -78,6 +83,8 @@ kind: Throttle
 metadata:
   name: t1
 spec:
+  # throttler name which responsible for this Throttle custom resource
+  throttlerName: kube-throttler
   # you can write any label selector freely 
   selector:
     matchLabels:
@@ -121,6 +128,7 @@ Just after a while, you can see the status of the throttle change:
 $ kubectl get throttle t1 -o yaml
 ...
 spec:
+  throttlerName: kube-throttler
   selector:
     matchLabels:
       throttle: t1
@@ -136,7 +144,7 @@ status:
 Then, create a pods with label `throttle=t1` and `requests` `cpu=300m`.
 
 ```shell
-kubectl create -f example/gen-pod.yaml
+kubectl create -f example/pod1.yaml
 ```
 
 after a while, you can see throttle `t1` will be activated on `cpu`.

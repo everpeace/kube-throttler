@@ -56,6 +56,7 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
           .Throttle(
             "t1",
             v1alpha1.Throttle.Spec(
+              throttlerName = "kube-throttler",
               selector = LabelSelector(IsEqualRequirement("key", "value")),
               // throttle is defined on "r" and "s"
               threshold = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
@@ -101,6 +102,7 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
           .Throttle(
             "t1",
             v1alpha1.Throttle.Spec(
+              throttlerName = "kube-throttler",
               selector = LabelSelector(IsEqualRequirement("key", "value")),
               threshold = Map("s" -> Quantity("3"))
             )
@@ -134,6 +136,7 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
           .Throttle(
             "t1",
             v1alpha1.Throttle.Spec(
+              throttlerName = "kube-throttler",
               selector = LabelSelector(IsEqualRequirement("key", "value")),
               threshold = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
             )
@@ -165,6 +168,7 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
           .Throttle(
             "t1",
             v1alpha1.Throttle.Spec(
+              throttlerName = "kube-throttler",
               selector = LabelSelector(IsEqualRequirement("key", "value")),
               threshold = Map("r" -> Quantity("1"))
             )
@@ -196,6 +200,7 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
           .Throttle(
             "t1",
             v1alpha1.Throttle.Spec(
+              throttlerName = "kube-throttler",
               selector = LabelSelector(IsEqualRequirement("key", "value")),
               threshold = Map("r" -> Quantity("3"))
             )

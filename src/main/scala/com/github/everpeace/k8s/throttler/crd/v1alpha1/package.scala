@@ -31,7 +31,8 @@ package object v1alpha1 {
     import skuber.json.format._
 
     implicit val specFmt: Format[v1alpha1.Throttle.Spec] = (
-      (JsPath \ "selector").formatLabelSelector and
+      (JsPath \ "throttlerName").formatMaybeEmptyString(true) and
+        (JsPath \ "selector").formatLabelSelector and
         (JsPath \ "threshold").formatMaybeEmptyMap[Quantity]
     )(v1alpha1.Throttle.Spec.apply, unlift(v1alpha1.Throttle.Spec.unapply))
 

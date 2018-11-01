@@ -23,6 +23,7 @@ import akka.stream.scaladsl.{Merge, Sink, Source}
 import cats.implicits._
 import com.github.everpeace.healthchecks
 import com.github.everpeace.k8s._
+import com.github.everpeace.k8s.throttler.KubeThrottleConfig
 import com.github.everpeace.k8s.throttler.controller.ThrottleController._
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
@@ -38,7 +39,7 @@ import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success, Try}
 
-class ThrottleController(implicit val k8s: K8SRequestContext)
+class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrottleConfig)
     extends Actor
     with ActorLogging
     with ThrottleControllerLogic
@@ -50,9 +51,15 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
 
   private val k8sMap: mutable.Map[String, K8SRequestContext] = mutable.Map(k8s.namespaceName -> k8s)
 
+  private def schedulerName(pod: Pod): Option[String] = pod.spec.flatMap(_.schedulerName)
+  private val isPodResponsible = (pod: Pod) =>
+    schedulerName(pod).exists(n => config.targetSchedulerNames.contains(n))
+  private val isThrottleResponsible = (thr: v1alpha1.Throttle) =>
+    config.throttlerName == thr.spec.throttlerName
+
   private val cache = new {
-    val pods      = new ObjectResourceCache[Pod]()
-    val throttles = new ObjectResourceCache[v1alpha1.Throttle]()
+    val pods      = new ObjectResourceCache[Pod](isPodResponsible)
+    val throttles = new ObjectResourceCache[v1alpha1.Throttle](isThrottleResponsible)
   }
 
   override def preStart(): Unit = {
@@ -191,7 +198,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
     eventHandler orElse resourceWatchHandler orElse requestHandler orElse healthCheckHandler
 
   def eventHandler: Receive = {
-    case PodWatchEvent(e) =>
+    case PodWatchEvent(e) if isPodResponsible(e._object) =>
       log.info("detected pod {} was {}", e._object.key, e._type)
       val updateOrRemoveThen = e._type match {
         case EventType.DELETED =>
@@ -202,7 +209,14 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
       updateOrRemoveThen { pod =>
         updateThrottleBecauseOf(pod)
       }
-    case ThrottleWatchEvent(e) =>
+    case PodWatchEvent(e) if !isPodResponsible(e._object) =>
+      log.info(
+        "detected pod {} was {}.  but it will be ignored because it is not responsible for {}",
+        e._object.key,
+        e._type,
+        config.targetSchedulerNames)
+
+    case ThrottleWatchEvent(e) if isThrottleResponsible(e._object) =>
       log.info("detected throttle {} was {}", e._object.key, e._type)
       val updateOrRemoveCacheThen = e._type match {
         case EventType.DELETED =>
@@ -221,6 +235,12 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
             recordSpecMetric(e._object)
         }
       }
+    case ThrottleWatchEvent(e) if !isThrottleResponsible(e._object) =>
+      log.info(
+        "detected throttle {} was {}.  but it will be ignored because it is not responsible for {}",
+        e._object.key,
+        e._type,
+        config.throttlerName)
   }
 
   def resourceWatchHandler: Receive = {
@@ -255,6 +275,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
   }
 
   private[controller] class ObjectResourceCache[R <: ObjectResource](
+      val isResponsible: R => Boolean = (_: R) => true,
       val map: mutable.Map[String, mutable.Map[ObjectKey, R]] =
         mutable.Map.empty[String, mutable.Map[ObjectKey, R]]) {
 
@@ -278,7 +299,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
         latestResourceVersion = resourceList.metadata map {
           _.resourceVersion
         }
-        _ = resourceList.items.foreach(update)
+        _ = resourceList.items.filter(isResponsible).foreach(update)
         _ <- Future { log.info("finished syncing {} status", rd.spec.names.singular) }
       } yield latestResourceVersion
     }
@@ -286,7 +307,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
     def update(r: R): Unit = updateThen(r)(_ => ())
     def remove(r: R): Unit = removeThen(r)(_ => ())
 
-    def updateThen(r: R)(f: R => Unit): Unit = {
+    def updateThen(r: R)(f: R => Unit): Unit = if (isResponsible(r)) {
       val key @ (ns, _) = r.key
 
       if (!map.contains(ns)) {
@@ -297,7 +318,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext)
 
       f(r)
     }
-    def removeThen(r: R)(f: R => Unit): Unit = {
+    def removeThen(r: R)(f: R => Unit): Unit = if (isResponsible(r)) {
       val key @ (ns, _) = r.key
 
       if (map.contains(ns)) {
@@ -342,8 +363,9 @@ object ThrottleController {
 
   private case class ThrottleWatchEvent(e: K8SWatchEvent[v1alpha1.Throttle])
 
-  def props(k8s: K8SRequestContext) = {
-    implicit val _k8s = k8s
+  def props(k8s: K8SRequestContext, config: KubeThrottleConfig) = {
+    implicit val _k8s    = k8s
+    implicit val _config = config
     Props(new ThrottleController())
   }
 }

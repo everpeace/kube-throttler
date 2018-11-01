@@ -20,10 +20,15 @@ import akka.util.Timeout
 import com.typesafe.config.Config
 
 import scala.concurrent.duration.{Duration, FiniteDuration}
+import scala.collection.JavaConverters._
 
 case class KubeThrottleConfig(config: Config) {
   private val basePath        = "kube-throttler"
   private val throttlerConfig = config.getConfig(basePath)
+
+  def throttlerName: String = throttlerConfig.getString("throttler-name")
+  def targetSchedulerNames: List[String] =
+    throttlerConfig.getStringList("target-scheduler-names").asScala.toList
 
   def gracefulShutdownDuration: FiniteDuration = Duration.fromNanos(
     throttlerConfig.getDuration(s"graceful-shutdown-duration").toNanos

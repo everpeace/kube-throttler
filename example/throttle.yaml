@@ -3,6 +3,7 @@ kind: Throttle
 metadata:
   name: t1
 spec:
+  throttlerName: kube-throttler
   selector:
     matchLabels:
       throttle: t1

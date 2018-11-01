@@ -49,6 +49,9 @@ object KubeThrottler extends App {
   val k8s    = skuber.k8sInit
   val config = KubeThrottleConfig(system.settings.config)
 
+  logger.info(s"throttler-name = ${config.throttlerName}")
+  logger.info(s"target-scheduler-names = ${config.targetSchedulerNames}")
+
   scala.sys.addShutdownHook {
     logger.info(
       "detected a signal. shutting down kube-throttler (graceful period = {}).",
@@ -57,7 +60,7 @@ object KubeThrottler extends App {
     gracefulShutdown(system, config.gracefulShutdownDuration)
   }
 
-  val throttler = system.actorOf(ThrottleController.props(k8s), "throttle-controller")
+  val throttler = system.actorOf(ThrottleController.props(k8s, config), "throttle-controller")
   val routes    = new Routes(throttler, config.throttlerAskTimeout).all
 
   Http().bindAndHandle(routes, config.host, config.port).onComplete {
