@@ -27,6 +27,9 @@ case class KubeThrottleConfig(config: Config) {
   private val throttlerConfig = config.getConfig(basePath)
 
   def throttlerName: String = throttlerConfig.getString("throttler-name")
+
+  def watchBufferSize: Int = throttlerConfig.getInt("watch-buffer-size")
+
   def targetSchedulerNames: List[String] =
     throttlerConfig.getStringList("target-scheduler-names").asScala.toList
 

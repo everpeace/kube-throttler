@@ -89,12 +89,17 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
       (throttleVersion, podVersion) <- syncThrottleAndPods
       // watch throttle in all namespaces
       throttleWatch = k8s.watchAllContinuously[v1alpha1.Throttle](
-        sinceResourceVersion = throttleVersion)(
+        sinceResourceVersion = throttleVersion,
+        bufSize = config.watchBufferSize
+      )(
         implicitly[Format[v1alpha1.Throttle]],
         clusterScopedResourceDefinition[v1alpha1.Throttle]
       )
       // watch pods in all namespaces
-      podWatch = k8s.watchAllContinuously[Pod](sinceResourceVersion = podVersion)(
+      podWatch = k8s.watchAllContinuously[Pod](
+        sinceResourceVersion = podVersion,
+        bufSize = config.watchBufferSize
+      )(
         implicitly[Format[Pod]],
         clusterScopedResourceDefinition[Pod]
       )
