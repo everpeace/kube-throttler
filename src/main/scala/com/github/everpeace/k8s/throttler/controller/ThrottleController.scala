@@ -17,7 +17,7 @@
 package com.github.everpeace.k8s.throttler.controller
 
 import akka.Done
-import akka.actor.{Actor, ActorLogging, Props}
+import akka.actor.{Actor, ActorLogging, PoisonPill, Props}
 import akka.stream.ActorMaterializer
 import akka.stream.scaladsl.{Merge, Sink, Source}
 import cats.implicits._
@@ -65,10 +65,28 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
   override def preStart(): Unit = {
     super.preStart()
     log.info("starting ThrottleController actor (path = {})", self.path)
-    val watch = for {
+
+    val syncThrottleAndPods = for {
       throttleVersion <- cache.throttles.init
       podVersion      <- cache.pods.init
       _               <- reconcileAllThrottles()
+    } yield (throttleVersion, podVersion)
+
+    syncThrottleAndPods.onComplete {
+      case scala.util.Success(v) =>
+        val (throttleVersion, podVersion) = v
+        log.info(
+          s"latest throttle list resource version = $throttleVersion, latest pod list resource version = $podVersion")
+      case scala.util.Failure(th) =>
+        log.error("error in syncing throttles and pods: {}, {}",
+                  th,
+                  th.getStackTrace.mkString("\n"))
+        log.error("{} will commit suicide", self.path)
+        self ! PoisonPill
+    }
+
+    for {
+      (throttleVersion, podVersion) <- syncThrottleAndPods
       // watch throttle in all namespaces
       throttleWatch = k8s.watchAllContinuously[v1alpha1.Throttle](
         sinceResourceVersion = throttleVersion)(
