@@ -89,11 +89,13 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
     Props(new Actor {
       override def receive: Receive = {
         case ThrottleController.CheckThrottleRequest(p) if p.name == "throttled" =>
-          sender() ! ThrottleController.Throttled(p,
-                                                  Set(dummyActiveThrottleFor(p)),
-                                                  Set(dummyActiveClusterThrottleFor(p)),
-                                                  Set(dummyInsufficientThrottleFor(p)),
-                                                  Set(dummyInsufficientClusterThrottleFor(p)))
+          sender() ! ThrottleController.Throttled(
+            p,
+            Set(dummyActiveThrottleFor(p)),
+            Set(dummyActiveClusterThrottleFor(p)),
+            Set(dummyInsufficientThrottleFor(p)),
+            Set(dummyInsufficientClusterThrottleFor(p))
+          )
         case ThrottleController.CheckThrottleRequest(p) if p.name == "not-throttled" =>
           sender() ! ThrottleController.NotThrottled(p)
         case ThrottleController.CheckThrottleRequest(p) if p.name == "timeout" =>
