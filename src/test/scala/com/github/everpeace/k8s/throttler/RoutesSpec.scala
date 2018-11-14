@@ -49,11 +49,51 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
         ))
   }
 
+  def dummyInsufficientThrottleFor(p: Pod) = {
+    v1alpha1
+      .Throttle("nospacethrottle",
+                v1alpha1.Throttle.Spec(
+                  throttlerName = "kube-throttler",
+                  selector = LabelSelector(),
+                  threshold = Map("cpu" -> Quantity("1"))
+                ))
+      .withNamespace(p.namespace)
+  }
+
+  def dummyActiveClusterThrottleFor(p: Pod) = {
+    v1alpha1
+      .ClusterThrottle("clusterthrottle",
+                       v1alpha1.ClusterThrottle.Spec(
+                         throttlerName = "kube-throttler",
+                         selector = LabelSelector(),
+                         threshold = Map("cpu" -> Quantity("1"))
+                       ))
+      .withStatus(
+        v1alpha1.ClusterThrottle.Status(
+          throttled = Map("cpu" -> true),
+          used = Map("cpu"      -> Quantity("2"))
+        ))
+  }
+
+  def dummyInsufficientClusterThrottleFor(p: Pod) = {
+    v1alpha1
+      .ClusterThrottle("nospacethrottle",
+                       v1alpha1.ClusterThrottle.Spec(
+                         throttlerName = "kube-throttler",
+                         selector = LabelSelector(),
+                         threshold = Map("cpu" -> Quantity("1"))
+                       ))
+  }
+
   val dummyThrottleController = system.actorOf(
     Props(new Actor {
       override def receive: Receive = {
         case ThrottleController.CheckThrottleRequest(p) if p.name == "throttled" =>
-          sender() ! ThrottleController.Throttled(p, Set(dummyActiveThrottleFor(p)))
+          sender() ! ThrottleController.Throttled(p,
+                                                  Set(dummyActiveThrottleFor(p)),
+                                                  Set(dummyActiveClusterThrottleFor(p)),
+                                                  Set(dummyInsufficientThrottleFor(p)),
+                                                  Set(dummyInsufficientClusterThrottleFor(p)))
         case ThrottleController.CheckThrottleRequest(p) if p.name == "not-throttled" =>
           sender() ! ThrottleController.NotThrottled(p)
         case ThrottleController.CheckThrottleRequest(p) if p.name == "timeout" =>
@@ -152,8 +192,8 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
               items = List.empty
             )
           ),
-          failedNodes =
-            Map("minikube" -> "pod (default,throttled) is unschedulable due to throttles=throttle"),
+          failedNodes = Map(
+            "minikube" -> "pod (default,throttled) is unschedulable due to throttles[active]=(default,throttle), clusterthrottles[active]=clusterthrottle, throttles[insufficient]=(default,nospacethrottle), clusterthrottles[insufficient]=nospacethrottle"),
           error = None
         )
       }

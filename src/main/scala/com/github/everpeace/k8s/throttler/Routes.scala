@@ -36,6 +36,7 @@ import io.k8s.pkg.scheduler.api.v1.ExtenderArgs
 
 import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success}
+import cats.implicits._
 
 class Routes(
     throttleController: ActorRef,
@@ -107,16 +108,51 @@ class Routes(
         system.log.info("checking throttle status for pod {}", pod.key)
         onComplete(throttleController ? CheckThrottleRequest(pod)) {
           // some throttles are active!!  no nodes are schedulable
-          case Success(Throttled(p, activeThrottles)) if p == pod =>
-            val throttleNames = activeThrottles.map(_.name).mkString(",")
-            val message       = s"pod ${pod.key} is unschedulable due to throttles=$throttleNames"
+          case Success(
+              Throttled(p,
+                        activeThrottles,
+                        activeClusterThrottles,
+                        noSpaceThrottles,
+                        noSpaceClusterThrottles)) if p == pod =>
+            val activeThrottleMessage = activeThrottles.toList.toNel
+              .map { thrs =>
+                val names = thrs.map(thr => thr.namespace -> thr.name).toList
+                s"throttles[active]=${names.mkString(",")}"
+              }
+
+            val activeClusterThrottleMessage = activeClusterThrottles.toList.toNel
+              .map { thrs =>
+                val names = thrs.map(_.name).toList
+                s"clusterthrottles[active]=${names.mkString(",")}"
+              }
+
+            val noSpaceThrottleMessage = noSpaceThrottles.toList.toNel
+              .map { thrs =>
+                val names = thrs.map(thr => thr.namespace -> thr.name).toList
+                s"throttles[insufficient]=${names.mkString(",")}"
+              }
+
+            val noSpaceClusterThrottleMessage = noSpaceClusterThrottles.toList.toNel
+              .map { thrs =>
+                val names = thrs.map(_.name).toList
+                s"clusterthrottles[insufficient]=${names.mkString(",")}"
+              }
+
+            val aggregatedMessage =
+              List(activeThrottleMessage,
+                   activeClusterThrottleMessage,
+                   noSpaceThrottleMessage,
+                   noSpaceClusterThrottleMessage).filter(_.nonEmpty).map(_.get).mkString(", ")
+
+            val message = s"pod ${pod.key} is unschedulable due to $aggregatedMessage"
             system.log.info(message)
             complete(unSchedulableResult(extenderArgs, message))
 
           // no throttles are active!!  all nodes are schedulable.
           case Success(NotThrottled(p)) if p == pod =>
-            system.log.info("pod {} is schedulable because no 'throttled' throttles for the pod.",
-                            pod.key)
+            system.log.info(
+              "pod {} is schedulable because no 'throttled' throttles/clusterthrottles for the pod.",
+              pod.key)
             complete(schedulableResult(extenderArgs))
 
           // failure.  no nodes are schedulable.

@@ -2,9 +2,9 @@
 [![Build Status](https://travis-ci.org/everpeace/kube-throttler.svg?branch=master)](https://travis-ci.org/everpeace/kube-throttler) 
 [![Docker Pulls](https://img.shields.io/docker/pulls/everpeace/kube-throttler.svg)](https://hub.docker.com/r/everpeace/kube-throttler/)
 
-`kube-throttler` enables you to throttle your pods.   It means that `kube-throttler` can prohibit to schedule any pods when it detects total amount of computational resource of `Running` pods exceeds a threshold (in terms of `resources.requests` field). 
+`kube-throttler` enables you to throttle your pods.   It means that `kube-throttler` can prohibit to schedule any pods when it detects total amount of computational resource of `Running` pods may exceeds a threshold (in terms of `resources.requests` field).
 
-`kube-throttler` provides you very flexible and fine-grained throttle control.  You can specify a set of pods which you want to throttle by [label selector](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/) and its threshold by `Throttle` CRD (see [deploy/0-crd.yaml](deploy/0-crd.yaml) for complete definition).
+`kube-throttler` provides you very flexible and fine-grained throttle control.  You can specify a set of pods which you want to throttle by [label selector](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/) and its threshold by `Throttle`/`ClusterThrottle` CRD (see [deploy/0-crd.yaml](deploy/0-crd.yaml) for complete definition).
 
 Throttle control is fully dynamic.  Once you update throttle setting, `kube-throttler` follow the setting and change its status in up-to-date. 
 
@@ -107,14 +107,16 @@ status:
 ```
 
 ## How `kube-throttler` works
-I describe a simple scenario here.
+I describe a simple scenario here.  _Note that this scenario holds with `ClusterThrottle`.  The only difference between them is `ClusterThrottles` can targets pods in multiple namespaces but `Throttle` can targets pods only in the same namespace with it._
 
 - define a throttle `t1` which targets `throttle=t1` label and threshold `cpu=200m` and `memory=1Gi`.
-- create `pod1` with the same label and `requests` `cpu=300m`
-- then, `t1` status will transition to `throttled: cpu: true` because total amount of `cpu` of running pods exceeds its threshold. 
+- create `pod1` with the same label and `requests` `cpu=200m`
+- then, `t1` status will transition to `throttled: cpu: true` because total amount of `cpu` of running pods reaches its threshold. 
 - create `pod2` with the same label and `requests` `cpu=300m` and see the pod stays `Pending` state because `cpu` was throttled.
 - create `pod1m` with same label and `requests` `memory=512Mi`.  ane see the pod will be scheduled because `t1` is throttled only on `cpu` and `memory` is not throttled.
 - update `t1` threshold with `cpu=700m`, then throttle will open and see `pod2` will be scheduled.
+- `t1`'s `cpu` capacity remains `200m` (threshold is `cpu=700m` and used `cpu=500m`) now.
+- then, create `pod3` with same label and `requests` `cpu=300m`. kube-throttler detects no enough space left for `cpu` resource in `t1`.  So, `pod3` stays `Pending. 
 
 Lets' create `Thrttle` first. 
 
@@ -157,7 +159,7 @@ status:
     cpu: true
     memory: false
   used:
-    cpu: "0.300"
+    cpu: "0.200"
 ```
 
 Next, create another pod then you will see the pod will be throttled and keep stay `Pending` state by `kube-throttler`.
@@ -169,24 +171,24 @@ $ kubectl describe pod pod2
 Events:
   Type     Reason            Age               From               Message
   ----     ------            ----              ----               -------
-  Warning  FailedScheduling  14s (x9 over 1m)  my-scheduler       pod is unschedulable due to throttles=t1
+  Warning  FailedScheduling  14s (x9 over 1m)  my-scheduler       pod is unschedulable due to throttles[active]=(default,t1)
 ```
 
 In this situation, you can run `pod1m` requesting `memory=512Mi` because `t1`'s `memory` throttle is not throttled.
 
 ```shell
 $ kubectl create -f example/pod1m.yaml
-$ k get po pod1m
+$ kubectl get po pod1m
 NAME      READY     STATUS    RESTARTS   AGE
 pod1m     1/1       Running   0          24s
-$ k get throttle t1 -o yaml
+$ kubectl get throttle t1 -o yaml
 ...
 status:
   throttled:
     cpu: true
     memory: false
   used:
-    cpu: "0.300"
+    cpu: "0.200"
     memory: "536870912"
 ```
 
@@ -200,7 +202,7 @@ $ kubectl describe pod pod2
 Events:
   Type     Reason            Age               From               Message
   ----     ------            ----              ----               -------
-  Warning  FailedScheduling  14s (x9 over 1m)  my-scheduler       pod is unschedulable due to throttles=t1
+  Warning  FailedScheduling  14s (x9 over 1m)  my-scheduler       pod is unschedulable due to throttles[active]=(default,t1)
   Normal   Scheduled         7s                my-scheduler       Successfully assigned default/pod-r8lxq to minikube
   Normal   Pulling           6s                kubelet, minikube  pulling image "busybox"
   Normal   Pulled            4s                kubelet, minikube  Successfully pulled image "busybox"
@@ -225,10 +227,24 @@ status:
     cpu: false
     memory: false
   used:
-    cpu: "0.600"
+    cpu: "0.500"
     memory: "536870912"
 ``` 
 
+Now, `t1` remains `cpu:200m` capacity.  Then, create `pod3` requesting `cpu:300m`.  `pod3` stays `Pending` state because `t1` does not have enough capacity on `cpu` resources.  
+
+```shell
+$ kubectl create -f example/pod3.yaml
+$ kubectl get po pod3
+NAME   READY   STATUS    RESTARTS   AGE
+pod3   0/1     Pending   0          5s
+$ kubectl describe pod3
+...
+Events:
+  Type     Reason            Age               From          Message
+  ----     ------            ----              ----          -------
+  Warning  FailedScheduling  9s (x3 over 13s)  my-scheduler  0/1 nodes are available: 1 pod (default,pod3) is unschedulable due to , throttles[insufficient]=(default,t1)
+```
 
 ## Monitoring with Prometheus
 `kube-throttler` exports prometheus metrics powered by [Kamon](https://kamon.io/). metrics are served on `http://kube-throttler.kube-throttler.svc:9095/metrics`.
@@ -240,6 +256,9 @@ status:
 | throttle_status_throttled | the throttle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`throttle_status_throttled{name="t1", namespace="default",uuid="...",resource="cpu"} 1.0`     
 | throttle_status_used | used amount of resource of the throttle |`throttle_status_used{name="t1", namespace="default",uuid="...",resource="cpu"} 200`     
 | throttle_spec_threshold | threshold on specific resource of the throttle |`throttle_spec_threshold{name="t1", namespace="default",uuid="...",resource="cpu"} 200`     
+| clusterthrottle_status_throttled | the clusterthrottle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`clusterthrottle_status_throttled{name="ct1", uuid="...",resource="cpu"} 1.0`     
+| clusterthrottle_status_used | used amount of resource of the clusterthrottle |`clusterthrottle_status_used{name="ct1", uuid="...",resource="cpu"} 200`     
+| clusterthrottle_spec_threshold | threshold on specific resource of the clusterthrottle |`clusterthrottle_spec_threshold{name="ct1", uuid="...",resource="cpu"} 200`     
 
 other metrics exported by [kamon-system-metrics](https://github.com/kamon-io/kamon-system-metrics), [kamon-akka](https://github.com/kamon-io/kamon-akka), [kamon-akka-http](https://github.com/kamon-io/kamon-akka-http) are available.
 

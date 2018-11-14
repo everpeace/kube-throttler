@@ -1,0 +1,13 @@
+apiVersion: schedule.k8s.everpeace.github.com/v1alpha1
+kind: ClusterThrottle
+metadata:
+  name: ct1
+spec:
+  throttlerName: kube-throttler
+  selector:
+    matchLabels:
+      throttle: t1
+  threshold:
+    cpu: 200m
+    memory: 1Gi
+

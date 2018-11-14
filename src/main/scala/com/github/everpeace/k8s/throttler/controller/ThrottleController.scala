@@ -29,10 +29,10 @@ import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
 import kamon.Kamon
 import play.api.libs.json.Format
-import skuber.Resource.ResourceList
+import skuber.Resource.{Quantity, ResourceList}
 import skuber.ResourceSpecification.Subresources
 import skuber.{ResourceSpecification, _}
-import skuber.api.client.{EventType, WatchEvent}
+import skuber.api.client.EventType
 import skuber.json.format._
 
 import scala.collection.mutable
@@ -43,7 +43,9 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
     extends Actor
     with ActorLogging
     with ThrottleControllerLogic
-    with ThrottleControllerMetrics {
+    with ThrottleControllerMetrics
+    with ClusterThrottleControllerLogic
+    with ClusterThrottleControllerMetrics {
 
   implicit private val system = context.system
   implicit private val mat    = ActorMaterializer()
@@ -52,14 +54,19 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
   private val k8sMap: mutable.Map[String, K8SRequestContext] = mutable.Map(k8s.namespaceName -> k8s)
 
   private def schedulerName(pod: Pod): Option[String] = pod.spec.flatMap(_.schedulerName)
+
   private val isPodResponsible = (pod: Pod) =>
     schedulerName(pod).exists(n => config.targetSchedulerNames.contains(n))
   private val isThrottleResponsible = (thr: v1alpha1.Throttle) =>
     config.throttlerName == thr.spec.throttlerName
+  private val isClusterThrottleResponsible = (clthr: v1alpha1.ClusterThrottle) =>
+    config.throttlerName == clthr.spec.throttlerName
 
   private val cache = new {
     val pods      = new ObjectResourceCache[Pod](isPodResponsible)
     val throttles = new ObjectResourceCache[v1alpha1.Throttle](isThrottleResponsible)
+    val clusterThrottles =
+      new ObjectResourceCache[v1alpha1.ClusterThrottle](isClusterThrottleResponsible)
   }
 
   override def preStart(): Unit = {
@@ -67,16 +74,18 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
     log.info("starting ThrottleController actor (path = {})", self.path)
 
     val syncThrottleAndPods = for {
-      throttleVersion <- cache.throttles.init
-      podVersion      <- cache.pods.init
-      _               <- reconcileAllThrottles()
-    } yield (throttleVersion, podVersion)
+      clthrottleVersion <- cache.clusterThrottles.init
+      throttleVersion   <- cache.throttles.init
+      podVersion        <- cache.pods.init
+      _                 <- reconcileAllClusterThrottles()
+      _                 <- reconcileAllThrottles()
+    } yield (clthrottleVersion, throttleVersion, podVersion)
 
     syncThrottleAndPods.onComplete {
       case scala.util.Success(v) =>
-        val (throttleVersion, podVersion) = v
+        val (clthrottleVersion, throttleVersion, podVersion) = v
         log.info(
-          s"latest throttle list resource version = $throttleVersion, latest pod list resource version = $podVersion")
+          s"latest throttle list resource version = $throttleVersion, latest clusterthrottle list resource version = $clthrottleVersion, latest pod list resource version = $podVersion")
       case scala.util.Failure(th) =>
         log.error("error in syncing throttles and pods: {}, {}",
                   th,
@@ -86,34 +95,47 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
     }
 
     for {
-      (throttleVersion, podVersion) <- syncThrottleAndPods
+      (clthrottleVersion, throttleVersion, podVersion) <- syncThrottleAndPods
+      // watch clusterthrottle
+      clthrottleWatch = k8s
+        .watchAllContinuously[v1alpha1.ClusterThrottle](
+          sinceResourceVersion = clthrottleVersion,
+          bufSize = config.watchBufferSize
+        )(
+          implicitly[Format[v1alpha1.ClusterThrottle]],
+          clusterScopedResourceDefinition[v1alpha1.ClusterThrottle]
+        )
+        .map(ClusterThrottleWatchEvent)
       // watch throttle in all namespaces
-      throttleWatch = k8s.watchAllContinuously[v1alpha1.Throttle](
-        sinceResourceVersion = throttleVersion,
-        bufSize = config.watchBufferSize
-      )(
-        implicitly[Format[v1alpha1.Throttle]],
-        clusterScopedResourceDefinition[v1alpha1.Throttle]
-      )
+      throttleWatch = k8s
+        .watchAllContinuously[v1alpha1.Throttle](
+          sinceResourceVersion = throttleVersion,
+          bufSize = config.watchBufferSize
+        )(
+          implicitly[Format[v1alpha1.Throttle]],
+          clusterScopedResourceDefinition[v1alpha1.Throttle]
+        )
+        .map(ThrottleWatchEvent)
       // watch pods in all namespaces
-      podWatch = k8s.watchAllContinuously[Pod](
-        sinceResourceVersion = podVersion,
-        bufSize = config.watchBufferSize
-      )(
-        implicitly[Format[Pod]],
-        clusterScopedResourceDefinition[Pod]
-      )
+      podWatch = k8s
+        .watchAllContinuously[Pod](
+          sinceResourceVersion = podVersion,
+          bufSize = config.watchBufferSize
+        )(
+          implicitly[Format[Pod]],
+          clusterScopedResourceDefinition[Pod]
+        )
+        .map(PodWatchEvent)
       // todo: use RestartSource to make the actor more stable.
       done <- {
         val fut = Source
-          .combine(throttleWatch, podWatch)(Merge(_, eagerComplete = true))
+          .combine(clthrottleWatch, throttleWatch, podWatch)(Merge(_, eagerComplete = true))
           .runWith(
             Sink.foreach {
-              case event @ WatchEvent(_, _: Pod) =>
-                self ! PodWatchEvent(event.asInstanceOf[K8SWatchEvent[Pod]])
-              case event @ WatchEvent(_, CustomResource(_, _, _, _, _)) =>
-                self ! ThrottleWatchEvent(event.asInstanceOf[K8SWatchEvent[v1alpha1.Throttle]])
-              case _ =>
+              case event: PodWatchEvent             => self ! event
+              case event: ThrottleWatchEvent        => self ! event
+              case event: ClusterThrottleWatchEvent => self ! event
+              case _                                =>
               // drop
             }
           )
@@ -155,7 +177,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
     fut.onComplete {
       case Success(thr) =>
         log.info("successfully updated throttle {} with status {}", thr.key, thr.status)
-        recordStatusMetric(thr)
+        recordThrottleStatusMetric(thr)
       case Failure(ex) =>
         log.error("failed updating throttle {} with status {} by {}", key, Option(st), ex)
     }
@@ -181,8 +203,8 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
       case Success(_) =>
         // update all metrics when reconciling
         cache.throttles.toImmutable.values.foreach(_.foreach { thr =>
-          recordSpecMetric(thr)
-          recordStatusMetric(thr)
+          recordThrottleSpecMetric(thr)
+          recordThrottleStatusMetric(thr)
         })
         log.info("finished reconciling throttle statuses.")
       case Failure(ex) =>
@@ -217,6 +239,96 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
     }
   }
 
+  private def _calcNextClusterThrottleStatuses(
+      targetClusterThrottles: Set[v1alpha1.ClusterThrottle],
+      podsInAllNamespaces: Set[Pod]
+    ): List[(ObjectKey, v1alpha1.ClusterThrottle.Status)] = {
+    val nextStatuses = calcNextClusterThrottleStatuses(targetClusterThrottles, podsInAllNamespaces)
+    if (nextStatuses.isEmpty) {
+      log.info("All clusterthrottle statuses are up-to-date. No updates.")
+    }
+    nextStatuses
+  }
+
+  private def syncClusterThrottle(
+      key: ObjectKey,
+      st: v1alpha1.ClusterThrottle.Status
+    ): Future[v1alpha1.ClusterThrottle] = {
+    val (_, n) = key
+
+    val k8s = k8sMap.getOrElseUpdate(
+      skuber.api.client.defaultK8sConfig.currentContext.namespace.name,
+      skuber.k8sInit(skuber.api.client.defaultK8sConfig))
+    val fut = for {
+      latest    <- k8s.get[v1alpha1.ClusterThrottle](n)
+      nextState = latest.copy(status = Option(st))
+      _         <- Future { log.info("updating clusterthrottle {} with status ({})", key, st) }
+      result    <- k8s.updateStatus(nextState)
+    } yield result
+
+    fut.onComplete {
+      case Success(clthr) =>
+        log.info("successfully updated clusterthrottle {} with status {}", clthr.key, clthr.status)
+        recordClusterThrottleStatusMetric(clthr)
+      case Failure(ex) =>
+        log.error("failed updating clusterthrottle {} with status {} by {}", key, Option(st), ex)
+    }
+
+    fut
+  }
+
+  def reconcileAllClusterThrottles(): Future[List[v1alpha1.ClusterThrottle]] = {
+    log.info("start reconciling clusterthrottle statuses.")
+
+    val clusterThrottleStatusesToReconcile = for {
+      (_, throttles) <- cache.clusterThrottles.toImmutable.toList
+      pods           = cache.pods.toImmutable.values.fold(Set.empty)(_ ++ _)
+      clthr          <- _calcNextClusterThrottleStatuses(throttles, pods)
+    } yield clthr
+
+    val fut = Future.sequence(clusterThrottleStatusesToReconcile.map {
+      case (key, st) =>
+        syncClusterThrottle(key, st)
+    })
+
+    fut.onComplete {
+      case Success(_) =>
+        // update all metrics when reconciling
+        cache.clusterThrottles.toImmutable.values.foreach(_.foreach { clthr =>
+          recordClusterThrottleSpecMetric(clthr)
+          recordClusterThrottleStatusMetric(clthr)
+        })
+        log.info("finished reconciling clusterthrottle statuses.")
+      case Failure(ex) =>
+        log.error("failed reconciling clusterthrottle statues by: {}", ex)
+    }
+
+    fut
+  }
+
+  // on detecting some pod change.
+  def updateClusterThrottleBecauseOf(pod: Pod): Unit = {
+    val podsInAllNamespaces = cache.pods.toImmutable.values.fold(Set.empty)(_ ++ _)
+    val allClusterThrottles = cache.clusterThrottles.toImmutable.values.fold(Set.empty)(_ ++ _)
+
+    for {
+      (key, st) <- _calcNextClusterThrottleStatuses(allClusterThrottles, podsInAllNamespaces)
+    } yield {
+      syncClusterThrottle(key, st)
+    }
+  }
+
+  // on detecting some throttle change.
+  def updateClusterThrottleBecauseOf(clthrottle: v1alpha1.ClusterThrottle): Unit = {
+    val podsInAllNamespaces = cache.pods.toImmutable.values.fold(Set.empty)(_ ++ _)
+
+    for {
+      (key, st) <- _calcNextClusterThrottleStatuses(Set(clthrottle), podsInAllNamespaces)
+    } yield {
+      syncClusterThrottle(key, st)
+    }
+  }
+
   override def receive: Receive =
     eventHandler orElse resourceWatchHandler orElse requestHandler orElse healthCheckHandler
 
@@ -231,6 +343,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
       }
       updateOrRemoveThen { pod =>
         updateThrottleBecauseOf(pod)
+        updateClusterThrottleBecauseOf(pod)
       }
     case PodWatchEvent(e) if !isPodResponsible(e._object) =>
       log.info(
@@ -238,6 +351,33 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
         e._object.key,
         e._type,
         config.targetSchedulerNames)
+
+    case ClusterThrottleWatchEvent(e) if isClusterThrottleResponsible(e._object) =>
+      log.info("detected clusterthrottle {} was {}", e._object.key, e._type)
+      val updateOrRemoveCacheThen = e._type match {
+        case EventType.DELETED =>
+          cache.clusterThrottles.removeThen(e._object)(_)
+        case _ =>
+          cache.clusterThrottles.updateThen(e._object)(_)
+      }
+      updateOrRemoveCacheThen { clusterThrottle =>
+        updateClusterThrottleBecauseOf(clusterThrottle)
+        e._type match {
+          case EventType.DELETED =>
+            log.info(
+              s"resetting all metrics for ${clusterThrottle.key} because detecting ${clusterThrottle.key} was DELETED.")
+            resetClusterThrottleMetric(e._object)
+          case _ =>
+            recordClusterThrottleSpecMetric(e._object)
+        }
+      }
+
+    case ClusterThrottleWatchEvent(e) if !isClusterThrottleResponsible(e._object) =>
+      log.info(
+        "detected clusterthrottle {} was {}.  but it will be ignored because it is not responsible for {}",
+        e._object.key,
+        e._type,
+        config.throttlerName)
 
     case ThrottleWatchEvent(e) if isThrottleResponsible(e._object) =>
       log.info("detected throttle {} was {}", e._object.key, e._type)
@@ -253,9 +393,9 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
           case EventType.DELETED =>
             log.info(
               s"resetting all metrics for ${throttle.key} because detecting ${throttle.key} was DELETED.")
-            resetMetric(e._object)
+            resetThrottleMetric(e._object)
           case _ =>
-            recordSpecMetric(e._object)
+            recordThrottleSpecMetric(e._object)
         }
       }
     case ThrottleWatchEvent(e) if !isThrottleResponsible(e._object) =>
@@ -285,9 +425,22 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
   def requestHandler: Receive = {
     case CheckThrottleRequest(pod) =>
       val throttlesInNs   = cache.throttles.toImmutable.getOrElse(pod.namespace, Set.empty)
-      val activeThrottles = throttlesInNs.filter(isActiveFor(pod, _))
-      if (activeThrottles.nonEmpty) {
-        sender ! Throttled(pod, activeThrottles)
+      val activeThrottles = throttlesInNs.filter(isThrottleActiveFor(pod, _))
+      val insufficientThrottles =
+        throttlesInNs.filter(t => !isThrottleActiveFor(pod, t) && isThrottleInsufficientFor(pod, t))
+
+      val clusterThrottles       = cache.clusterThrottles.toImmutable.values.fold(Set.empty)(_ ++ _)
+      val activeClusterThrottles = clusterThrottles.filter(isClusterThrottleActiveFor(pod, _))
+      val insufficientClusterThrottles = clusterThrottles.filter(t =>
+        !isClusterThrottleActiveFor(pod, t) && isClusterThrottleInsufficientFor(pod, t))
+
+      val isThrottled = activeThrottles.nonEmpty || activeClusterThrottles.nonEmpty || insufficientThrottles.nonEmpty || insufficientClusterThrottles.nonEmpty
+      if (isThrottled) {
+        sender ! Throttled(pod,
+                           activeThrottles,
+                           activeClusterThrottles,
+                           insufficientThrottles,
+                           insufficientClusterThrottles)
       } else {
         sender ! NotThrottled(pod)
       }
@@ -358,22 +511,33 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
 object ThrottleController {
 
   def clusterScopedResourceDefinition[O <: TypeMeta](implicit rd: ResourceDefinition[O]) =
-    new ResourceDefinition[O] {
-      def spec = new ResourceSpecification {
-        override def apiPathPrefix: String                    = rd.spec.apiPathPrefix
-        override def group: Option[String]                    = rd.spec.group
-        override def defaultVersion: String                   = rd.spec.defaultVersion
-        override def prioritisedVersions: List[String]        = rd.spec.prioritisedVersions
-        override def scope: ResourceSpecification.Scope.Value = ResourceSpecification.Scope.Cluster
-        override def names: ResourceSpecification.Names       = rd.spec.names
-        override def subresources: Option[Subresources]       = rd.spec.subresources
-      }
+    rd.spec.scope match {
+      case ResourceSpecification.Scope.Cluster =>
+        rd
+      case ResourceSpecification.Scope.Namespaced =>
+        new ResourceDefinition[O] {
+          def spec = new ResourceSpecification {
+            override def apiPathPrefix: String             = rd.spec.apiPathPrefix
+            override def group: Option[String]             = rd.spec.group
+            override def defaultVersion: String            = rd.spec.defaultVersion
+            override def prioritisedVersions: List[String] = rd.spec.prioritisedVersions
+            override def scope: ResourceSpecification.Scope.Value =
+              ResourceSpecification.Scope.Cluster
+            override def names: ResourceSpecification.Names = rd.spec.names
+            override def subresources: Option[Subresources] = rd.spec.subresources
+          }
+        }
     }
 
   // messages
   case class CheckThrottleRequest(pod: Pod)
 
-  case class Throttled(pod: Pod, activeThrottles: Set[v1alpha1.Throttle])
+  case class Throttled(
+      pod: Pod,
+      activeThrottles: Set[v1alpha1.Throttle],
+      activeClusterThrottles: Set[v1alpha1.ClusterThrottle],
+      insufficientThrottles: Set[v1alpha1.Throttle],
+      insufficientClusterThrottles: Set[v1alpha1.ClusterThrottle])
 
   case class NotThrottled(pod: Pod)
 
@@ -386,6 +550,8 @@ object ThrottleController {
 
   private case class ThrottleWatchEvent(e: K8SWatchEvent[v1alpha1.Throttle])
 
+  private case class ClusterThrottleWatchEvent(e: K8SWatchEvent[v1alpha1.ClusterThrottle])
+
   def props(k8s: K8SRequestContext, config: KubeThrottleConfig) = {
     implicit val _k8s    = k8s
     implicit val _config = config
@@ -393,7 +559,17 @@ object ThrottleController {
   }
 }
 
-trait ThrottleControllerMetrics {
+trait MetricsBase {
+  def resourceQuantityToLong(q: (String, Resource.Quantity)): Long = q._1 match {
+    case Resource.cpu =>
+      (q._2.amount * 1000).toLong // convert to milli
+    case _ => q._2.amount.toLong
+  }
+
+  def resourceQuantityToTag(q: (String, _)): kamon.Tags = Map("resource" -> q._1)
+}
+
+trait ClusterThrottleControllerMetrics extends MetricsBase {
   self: {
     def log: {
       def info(s: String): Unit
@@ -401,7 +577,84 @@ trait ThrottleControllerMetrics {
     }
   } =>
 
-  def resetMetric(throttle: v1alpha1.Throttle): Unit = {
+  def resetClusterThrottleMetric(clthrottle: v1alpha1.ClusterThrottle): Unit = {
+    val zeroSpec = clthrottle.spec.copy(
+      threshold = clthrottle.spec.threshold.mapValues(_ => Resource.Quantity("0")),
+      selector = clthrottle.spec.selector
+    )
+
+    val zeroFalseStatus = clthrottle.status.map(
+      st =>
+        st.copy(
+          throttled = st.throttled.mapValues(_ => false),
+          used = st.used.mapValues(_ => Resource.Quantity("0"))
+      ))
+    val zero = clthrottle.copy(
+      spec = zeroSpec,
+      status = zeroFalseStatus
+    )
+
+    recordClusterThrottleSpecMetric(zero)
+    recordClusterThrottleStatusMetric(zero)
+  }
+
+  def recordClusterThrottleSpecMetric(clthrottle: v1alpha1.ClusterThrottle): Unit = {
+    val metadataTags   = metadataTagsForClusterThrottle(clthrottle)
+    val thresholdGauge = Kamon.gauge("clusterthrottle.spec.threshold")
+
+    clthrottle.spec.threshold.foreach { rq =>
+      val tags  = metadataTags ++ resourceQuantityToTag(rq)
+      val value = resourceQuantityToLong(rq)
+      log.info(
+        s"setting gauge '${thresholdGauge.name}{${tags.values.mkString(",")}}' value with ${value}")
+      thresholdGauge.refine(tags).set(value)
+    }
+  }
+
+  def recordClusterThrottleStatusMetric(clthrottle: v1alpha1.ClusterThrottle): Unit = {
+    val metadataTags = metadataTagsForClusterThrottle(clthrottle)
+    val statusGauge  = Kamon.gauge("clusterthrottle.status.throttled")
+    val usedGauge    = Kamon.gauge("clusterthrottle.status.used")
+    val b2i          = (b: Boolean) => b compare false
+
+    clthrottle.status.foreach { status =>
+      status.throttled.foreach { rq =>
+        val tags = metadataTags ++ resourceQuantityToTag(rq)
+        log.info(
+          s"setting gauge '${statusGauge.name}{${tags.values.mkString(",")}}' value with ${b2i(rq._2)}")
+        statusGauge.refine(tags).set(b2i(rq._2))
+      }
+
+      status.used.foreach { rq =>
+        val tags  = metadataTags ++ resourceQuantityToTag(rq)
+        val value = resourceQuantityToLong(rq)
+        log.debug(
+          s"setting gauge '${usedGauge.name}{${tags.values.mkString(",")}}' value with ${value}")
+        usedGauge.refine(tags).set(value)
+      }
+    }
+  }
+
+  def metadataTagsForClusterThrottle(throttle: v1alpha1.ClusterThrottle): kamon.Tags = {
+    val metadata = List(
+      "name" -> throttle.metadata.name,
+      "uuid" -> throttle.metadata.uid
+    ).toMap ++ throttle.metadata.clusterName.map(cn => Map("cluster" -> cn)).getOrElse(Map.empty)
+
+    metadata ++ throttle.metadata.labels ++ throttle.metadata.annotations
+  }
+
+}
+
+trait ThrottleControllerMetrics extends MetricsBase {
+  self: {
+    def log: {
+      def info(s: String): Unit
+      def debug(s: String): Unit
+    }
+  } =>
+
+  def resetThrottleMetric(throttle: v1alpha1.Throttle): Unit = {
     val zeroSpec = throttle.spec.copy(
       threshold = throttle.spec.threshold.mapValues(_ => Resource.Quantity("0")),
       selector = throttle.spec.selector
@@ -418,12 +671,12 @@ trait ThrottleControllerMetrics {
       status = zeroFalseStatus
     )
 
-    recordSpecMetric(zero)
-    recordStatusMetric(zero)
+    recordThrottleSpecMetric(zero)
+    recordThrottleStatusMetric(zero)
   }
 
-  def recordSpecMetric(throttle: v1alpha1.Throttle): Unit = {
-    val metadataTags   = metadataTagsFor(throttle)
+  def recordThrottleSpecMetric(throttle: v1alpha1.Throttle): Unit = {
+    val metadataTags   = metadataTagsForThrottle(throttle)
     val thresholdGauge = Kamon.gauge("throttle.spec.threshold")
 
     throttle.spec.threshold.foreach { rq =>
@@ -435,8 +688,8 @@ trait ThrottleControllerMetrics {
     }
   }
 
-  def recordStatusMetric(throttle: v1alpha1.Throttle): Unit = {
-    val metadataTags = metadataTagsFor(throttle)
+  def recordThrottleStatusMetric(throttle: v1alpha1.Throttle): Unit = {
+    val metadataTags = metadataTagsForThrottle(throttle)
     val statusGauge  = Kamon.gauge("throttle.status.throttled")
     val usedGauge    = Kamon.gauge("throttle.status.used")
     val b2i          = (b: Boolean) => b compare false
@@ -458,15 +711,7 @@ trait ThrottleControllerMetrics {
     }
   }
 
-  def resourceQuantityToLong(q: (String, Resource.Quantity)): Long = q._1 match {
-    case Resource.cpu =>
-      (q._2.amount * 1000).toLong // convert to milli
-    case _ => q._2.amount.toLong
-  }
-
-  def resourceQuantityToTag(q: (String, _)): kamon.Tags = Map("resource" -> q._1)
-
-  def metadataTagsFor(throttle: v1alpha1.Throttle): kamon.Tags = {
+  def metadataTagsForThrottle(throttle: v1alpha1.Throttle): kamon.Tags = {
     val metadata = List(
       "name"      -> throttle.metadata.name,
       "namespace" -> throttle.metadata.namespace,
@@ -475,12 +720,101 @@ trait ThrottleControllerMetrics {
 
     metadata ++ throttle.metadata.labels ++ throttle.metadata.annotations
   }
+
+}
+
+trait ClusterThrottleControllerLogic {
+
+  def isClusterThrottleActiveFor(pod: Pod, clthrottle: v1alpha1.ClusterThrottle): Boolean = {
+    clthrottle.spec.selector.matches(pod.metadata.labels) && clthrottle.status.exists { st =>
+      pod.totalRequests.keys.map(rs => st.throttled.getOrElse(rs, false)).exists(_ == true)
+    }
+  }
+
+  def isClusterThrottleInsufficientFor(pod: Pod, clthrottle: v1alpha1.ClusterThrottle): Boolean = {
+    clthrottle.spec.selector.matches(pod.metadata.labels) && {
+      val podTotalRequests = pod.totalRequests
+      val threshold        = clthrottle.spec.threshold
+      val used             = clthrottle.status.map(_.used).getOrElse(Map.empty)
+
+      val enoughSpaces = for {
+        (r, q) <- podTotalRequests.toList
+      } yield {
+        if (threshold.contains(r)) {
+          val uq = used.getOrElse(r, Quantity("0"))
+          ((uq add q) compare threshold(r)) <= 0
+        } else {
+          true
+        }
+      }
+
+      enoughSpaces.exists(!_)
+    }
+  }
+
+  def calcNextClusterThrottleStatuses(
+      targetClusterThrottles: Set[v1alpha1.ClusterThrottle],
+      podsInAllNamespaces: Set[Pod]
+    ): List[(ObjectKey, v1alpha1.ClusterThrottle.Status)] = {
+
+    for {
+      clthrottle <- targetClusterThrottles.toList
+
+      matchedPods = podsInAllNamespaces.filter(p =>
+        clthrottle.spec.selector.matches(p.metadata.labels))
+      running      = matchedPods.filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
+      usedResource = running.toList.map(_.totalRequests).foldLeft(Map.empty: ResourceList)(_ add _)
+
+      throttled = clthrottle.spec.threshold.keys.map { resource =>
+        if (usedResource.contains(resource)) {
+          if (usedResource(resource) < clthrottle.spec.threshold(resource)) {
+            resource -> false
+          } else {
+            resource -> true
+          }
+        } else {
+          resource -> false
+        }
+      }.toMap
+      nextStatus = v1alpha1.ClusterThrottle.Status(
+        throttled = throttled,
+        used = usedResource
+      )
+
+      toUpdate <- if (clthrottle.status != Option(nextStatus)) {
+                   List(clthrottle.key -> nextStatus)
+                 } else {
+                   List.empty
+                 }
+    } yield toUpdate
+  }
 }
 
 trait ThrottleControllerLogic {
-  def isActiveFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean = {
+  def isThrottleActiveFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean = {
     throttle.spec.selector.matches(pod.metadata.labels) && throttle.status.exists { st =>
       pod.totalRequests.keys.map(rs => st.throttled.getOrElse(rs, false)).exists(_ == true)
+    }
+  }
+
+  def isThrottleInsufficientFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean = {
+    throttle.spec.selector.matches(pod.metadata.labels) && {
+      val podTotalRequests = pod.totalRequests
+      val threshold        = throttle.spec.threshold
+      val used             = throttle.status.map(_.used).getOrElse(Map.empty)
+
+      val enoughSpaces = for {
+        (r, q) <- podTotalRequests.toList
+      } yield {
+        if (threshold.contains(r)) {
+          val uq = used.getOrElse(r, Quantity("0"))
+          ((uq add q) compare threshold(r)) <= 0
+        } else {
+          true
+        }
+      }
+
+      enoughSpaces.exists(!_)
     }
   }
 

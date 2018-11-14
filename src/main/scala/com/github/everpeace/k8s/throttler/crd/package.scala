@@ -17,9 +17,18 @@
 package com.github.everpeace.k8s.throttler
 
 package object crd {
-  final val Group        = "schedule.k8s.everpeace.github.com"
-  final val Kind         = "Throttle"
-  final val SingularName = "throttle"
-  final val PluralName   = "throttles"
-  final val ShortNames   = List("thr", "thrs")
+  final val Group = "schedule.k8s.everpeace.github.com"
+  object Throttle {
+    final val Kind         = "Throttle"
+    final val SingularName = "throttle"
+    final val PluralName   = "throttles"
+    final val ShortNames   = List("thr", "thrs")
+  }
+
+  object ClusterThrottle {
+    final val Kind         = "ClusterThrottle"
+    final val SingularName = "clusterthrottle"
+    final val PluralName   = "clusterthrottles"
+    final val ShortNames   = List("clthr", "clthrs")
+  }
 }

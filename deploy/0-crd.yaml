@@ -32,3 +32,38 @@ spec:
               type: object
             threshold:
               type: object
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: clusterthrottles.schedule.k8s.everpeace.github.com
+spec:
+  group: schedule.k8s.everpeace.github.com
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+  scope: Cluster
+  names:
+    plural: clusterthrottles
+    singular: clusterthrottle
+    kind: ClusterThrottle
+    shortNames:
+    - clthr
+    - clthrs
+  subresources:
+    status: {}
+  validation:
+    # openAPIV3Schema is the schema for validating custom objects.
+    openAPIV3Schema:
+      properties:
+        spec:
+          type: object
+          required:
+          - selector
+          - threshold
+          properties:
+            selector:
+              type: object
+            threshold:
+              type: object
