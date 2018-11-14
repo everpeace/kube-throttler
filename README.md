@@ -275,6 +275,10 @@ Apache License 2.0
 
 # Change Logs
 
+## `0.1.3`
+- `watch-buff-size` can be configurable for large pods
+- properly handle initial sync error
+
 ## `0.1.2`
 - multi-throttler, multi-scheduler deployment support
   - `throttlerName` is introduced in `Throttle` CRD
