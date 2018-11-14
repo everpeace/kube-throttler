@@ -16,8 +16,6 @@ spec:
     shortNames:
     - thr
     - thrs
-    categories:
-    - all
   subresources:
     status: {}
   validation:
