@@ -656,15 +656,25 @@ trait ThrottleControllerMetrics extends MetricsBase {
 
   def resetThrottleMetric(throttle: v1alpha1.Throttle): Unit = {
     val zeroSpec = throttle.spec.copy(
-      threshold = throttle.spec.threshold.mapValues(_ => Resource.Quantity("0")),
+      threshold = throttle.spec.threshold.copy(
+        podsCount = Option(0),
+        resourceRequests =
+          throttle.spec.threshold.resourceRequests.mapValues(_ => Resource.Quantity("0"))
+      ),
       selector = throttle.spec.selector
     )
 
     val zeroFalseStatus = throttle.status.map(
       st =>
         st.copy(
-          throttled = st.throttled.mapValues(_ => false),
-          used = st.used.mapValues(_ => Resource.Quantity("0"))
+          throttled = st.throttled.copy(
+            podsCount = st.throttled.podsCount.map(_ => false),
+            resourceRequests = st.throttled.resourceRequests.mapValues(_ => false)
+          ),
+          used = st.used.copy(
+            podsCount = st.used.podsCount.map(_ => 0),
+            resourceRequests = st.used.resourceRequests.mapValues(_ => Resource.Quantity("0"))
+          )
       ))
     val zero = throttle.copy(
       spec = zeroSpec,
@@ -676,37 +686,62 @@ trait ThrottleControllerMetrics extends MetricsBase {
   }
 
   def recordThrottleSpecMetric(throttle: v1alpha1.Throttle): Unit = {
-    val metadataTags   = metadataTagsForThrottle(throttle)
-    val thresholdGauge = Kamon.gauge("throttle.spec.threshold")
+    val metadataTags = metadataTagsForThrottle(throttle)
 
-    throttle.spec.threshold.foreach { rq =>
+    val resourceRequestsThresholdGauge = Kamon.gauge("throttle.spec.threshold.resourceRequests")
+    val podsCountsThresholdGauge       = Kamon.gauge("throttle.spec.threshold.podsCount")
+
+    throttle.spec.threshold.resourceRequests.foreach { rq =>
       val tags  = metadataTags ++ resourceQuantityToTag(rq)
       val value = resourceQuantityToLong(rq)
+      log.info(s"setting gauge '${resourceRequestsThresholdGauge.name}{${tags.values
+        .mkString(",")}}' value with ${value}")
+      resourceRequestsThresholdGauge.refine(tags).set(value)
+    }
+
+    throttle.spec.threshold.podsCount.foreach { value =>
+      val tags = metadataTags
       log.info(
-        s"setting gauge '${thresholdGauge.name}{${tags.values.mkString(",")}}' value with ${value}")
-      thresholdGauge.refine(tags).set(value)
+        s"setting gauge '${podsCountsThresholdGauge.name}{${tags.values.mkString(",")}}' value with ${value}")
+      podsCountsThresholdGauge.refine(tags).set(value)
     }
   }
 
   def recordThrottleStatusMetric(throttle: v1alpha1.Throttle): Unit = {
-    val metadataTags = metadataTagsForThrottle(throttle)
-    val statusGauge  = Kamon.gauge("throttle.status.throttled")
-    val usedGauge    = Kamon.gauge("throttle.status.used")
-    val b2i          = (b: Boolean) => b compare false
+    val metadataTags  = metadataTagsForThrottle(throttle)
+    val statusRRGauge = Kamon.gauge("throttle.status.throttled.resourceRequests")
+    val statusPCGauge = Kamon.gauge("throttle.status.throttled.podsCount")
+    val usedRRGauge   = Kamon.gauge("throttle.status.used.resourceRequests")
+    val usedPCGauge   = Kamon.gauge("throttle.status.used.podsCount")
+
+    val b2i = (b: Boolean) => b compare false
     throttle.status.foreach { status =>
-      status.throttled.foreach { rq =>
+      status.throttled.resourceRequests foreach { rq =>
         val tags = metadataTags ++ resourceQuantityToTag(rq)
         log.info(
-          s"setting gauge '${statusGauge.name}{${tags.values.mkString(",")}}' value with ${b2i(rq._2)}")
-        statusGauge.refine(tags).set(b2i(rq._2))
+          s"setting gauge '${statusRRGauge.name}{${tags.values.mkString(",")}}' value with ${b2i(rq._2)}")
+        statusRRGauge.refine(tags).set(b2i(rq._2))
+      }
+      status.throttled.podsCount foreach { value =>
+        val tags = metadataTags
+        log.info(
+          s"setting gauge '${statusPCGauge.name}{${tags.values.mkString(",")}}' value with ${b2i(value)}")
+        statusPCGauge.refine(tags).set(b2i(value))
+
       }
 
-      status.used.foreach { rq =>
+      status.used.resourceRequests foreach { rq =>
         val tags  = metadataTags ++ resourceQuantityToTag(rq)
         val value = resourceQuantityToLong(rq)
         log.debug(
-          s"setting gauge '${usedGauge.name}{${tags.values.mkString(",")}}' value with ${value}")
-        usedGauge.refine(tags).set(value)
+          s"setting gauge '${usedRRGauge.name}{${tags.values.mkString(",")}}' value with ${value}")
+        usedRRGauge.refine(tags).set(value)
+      }
+      status.used.podsCount foreach { value =>
+        val tags = metadataTags
+        log.debug(
+          s"setting gauge '${usedPCGauge.name}{${tags.values.mkString(",")}}' value with ${value}")
+        usedPCGauge.refine(tags).set(value)
       }
     }
   }
@@ -791,32 +826,11 @@ trait ClusterThrottleControllerLogic {
 }
 
 trait ThrottleControllerLogic {
-  def isThrottleActiveFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean = {
-    throttle.spec.selector.matches(pod.metadata.labels) && throttle.status.exists { st =>
-      pod.totalRequests.keys.map(rs => st.throttled.getOrElse(rs, false)).exists(_ == true)
-    }
-  }
+  def isThrottleActiveFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean =
+    throttle.isThrottleActiveFor(pod)
 
-  def isThrottleInsufficientFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean = {
-    throttle.spec.selector.matches(pod.metadata.labels) && {
-      val podTotalRequests = pod.totalRequests
-      val threshold        = throttle.spec.threshold
-      val used             = throttle.status.map(_.used).getOrElse(Map.empty)
-
-      val enoughSpaces = for {
-        (r, q) <- podTotalRequests.toList
-      } yield {
-        if (threshold.contains(r)) {
-          val uq = used.getOrElse(r, Quantity("0"))
-          ((uq add q) compare threshold(r)) <= 0
-        } else {
-          true
-        }
-      }
-
-      enoughSpaces.exists(!_)
-    }
-  }
+  def isThrottleInsufficientFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean =
+    throttle.isThrottleInsufficientFor(pod)
 
   def calcNextThrottleStatuses(
       targetThrottles: Set[v1alpha1.Throttle],
@@ -826,25 +840,20 @@ trait ThrottleControllerLogic {
     for {
       throttle <- targetThrottles.toList
 
-      matchedPods  = podsInNs.filter(p => throttle.spec.selector.matches(p.metadata.labels))
-      running      = matchedPods.filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
-      usedResource = running.toList.map(_.totalRequests).foldLeft(Map.empty: ResourceList)(_ add _)
-
-      throttled = throttle.spec.threshold.keys.map { resource =>
-        if (usedResource.contains(resource)) {
-          if (usedResource(resource) < throttle.spec.threshold(resource)) {
-            resource -> false
-          } else {
-            resource -> true
-          }
-        } else {
-          resource -> false
+      matchedPods = podsInNs.filter(p => throttle.spec.selector.matches(p.metadata.labels))
+      running     = matchedPods.filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
+      usedResource = v1alpha1.Throttle.ResourceAmount(
+        podsCount = throttle.spec.threshold.podsCount.map(_ => running.size),
+        resourceRequests = {
+          val actual =
+            running.toList.map(_.totalRequests).foldLeft(Map.empty: ResourceList)(_ add _)
+          val ret = for {
+            (r, _) <- throttle.spec.threshold.resourceRequests if actual.contains(r)
+          } yield r -> actual(r)
+          ret
         }
-      }.toMap
-      nextStatus = v1alpha1.Throttle.Status(
-        throttled = throttled,
-        used = usedResource
       )
+      nextStatus = throttle.spec.statusFor(usedResource)
 
       toUpdate <- if (throttle.status != Option(nextStatus)) {
                    List(throttle.key -> nextStatus)
