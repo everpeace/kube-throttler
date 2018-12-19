@@ -20,7 +20,6 @@ import akka.Done
 import akka.actor.{Actor, ActorLogging, PoisonPill, Props}
 import akka.stream.ActorMaterializer
 import akka.stream.scaladsl.{Merge, Sink, Source}
-import cats.implicits._
 import com.github.everpeace.healthchecks
 import com.github.everpeace.k8s._
 import com.github.everpeace.k8s.throttler.KubeThrottleConfig
@@ -29,11 +28,11 @@ import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
 import kamon.Kamon
 import play.api.libs.json.Format
-import skuber.Resource.{Quantity, ResourceList}
+import skuber.Resource.ResourceList
 import skuber.ResourceSpecification.Subresources
-import skuber.{ResourceSpecification, _}
 import skuber.api.client.EventType
 import skuber.json.format._
+import skuber.{ResourceSpecification, _}
 
 import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
@@ -579,16 +578,27 @@ trait ClusterThrottleControllerMetrics extends MetricsBase {
 
   def resetClusterThrottleMetric(clthrottle: v1alpha1.ClusterThrottle): Unit = {
     val zeroSpec = clthrottle.spec.copy(
-      threshold = clthrottle.spec.threshold.mapValues(_ => Resource.Quantity("0")),
+      threshold = clthrottle.spec.threshold.copy(
+        podsCount = Option(0),
+        resourceRequests =
+          clthrottle.spec.threshold.resourceRequests.mapValues(_ => Resource.Quantity("0"))
+      ),
       selector = clthrottle.spec.selector
     )
 
     val zeroFalseStatus = clthrottle.status.map(
       st =>
         st.copy(
-          throttled = st.throttled.mapValues(_ => false),
-          used = st.used.mapValues(_ => Resource.Quantity("0"))
-      ))
+          throttled = st.throttled.copy(
+            podsCount = st.throttled.podsCount.map(_ => false),
+            resourceRequests = st.throttled.resourceRequests.mapValues(_ => false)
+          ),
+          used = st.used.copy(
+            podsCount = st.used.podsCount.map(_ => 0),
+            resourceRequests = st.used.resourceRequests.mapValues(_ => Resource.Quantity("0"))
+          )
+      )
+    )
     val zero = clthrottle.copy(
       spec = zeroSpec,
       status = zeroFalseStatus
@@ -599,38 +609,63 @@ trait ClusterThrottleControllerMetrics extends MetricsBase {
   }
 
   def recordClusterThrottleSpecMetric(clthrottle: v1alpha1.ClusterThrottle): Unit = {
-    val metadataTags   = metadataTagsForClusterThrottle(clthrottle)
-    val thresholdGauge = Kamon.gauge("clusterthrottle.spec.threshold")
+    val metadataTags = metadataTagsForClusterThrottle(clthrottle)
 
-    clthrottle.spec.threshold.foreach { rq =>
+    val resourceRequestsThresholdGauge =
+      Kamon.gauge("clusterthrottle.spec.threshold.resourceRequests")
+    val podsCountsThresholdGauge = Kamon.gauge("clusterthrottle.spec.threshold.podsCount")
+
+    clthrottle.spec.threshold.resourceRequests.foreach { rq =>
       val tags  = metadataTags ++ resourceQuantityToTag(rq)
       val value = resourceQuantityToLong(rq)
+      log.info(s"setting gauge '${resourceRequestsThresholdGauge.name}{${tags.values
+        .mkString(",")}}' value with ${value}")
+      resourceRequestsThresholdGauge.refine(tags).set(value)
+    }
+
+    clthrottle.spec.threshold.podsCount.foreach { value =>
+      val tags = metadataTags
       log.info(
-        s"setting gauge '${thresholdGauge.name}{${tags.values.mkString(",")}}' value with ${value}")
-      thresholdGauge.refine(tags).set(value)
+        s"setting gauge '${podsCountsThresholdGauge.name}{${tags.values.mkString(",")}}' value with ${value}")
+      podsCountsThresholdGauge.refine(tags).set(value)
     }
   }
 
   def recordClusterThrottleStatusMetric(clthrottle: v1alpha1.ClusterThrottle): Unit = {
-    val metadataTags = metadataTagsForClusterThrottle(clthrottle)
-    val statusGauge  = Kamon.gauge("clusterthrottle.status.throttled")
-    val usedGauge    = Kamon.gauge("clusterthrottle.status.used")
-    val b2i          = (b: Boolean) => b compare false
+    val metadataTags  = metadataTagsForClusterThrottle(clthrottle)
+    val statusRRGauge = Kamon.gauge("clusterthrottle.status.throttled.resourceRequests")
+    val statusPCGauge = Kamon.gauge("clusterthrottle.status.throttled.podsCount")
+    val usedRRGauge   = Kamon.gauge("clusterthrottle.status.used.resourceRequests")
+    val usedPCGauge   = Kamon.gauge("clusterthrottle.status.used.podsCount")
 
+    val b2i = (b: Boolean) => b compare false
     clthrottle.status.foreach { status =>
-      status.throttled.foreach { rq =>
+      status.throttled.resourceRequests foreach { rq =>
         val tags = metadataTags ++ resourceQuantityToTag(rq)
         log.info(
-          s"setting gauge '${statusGauge.name}{${tags.values.mkString(",")}}' value with ${b2i(rq._2)}")
-        statusGauge.refine(tags).set(b2i(rq._2))
+          s"setting gauge '${statusRRGauge.name}{${tags.values.mkString(",")}}' value with ${b2i(rq._2)}")
+        statusRRGauge.refine(tags).set(b2i(rq._2))
+      }
+      status.throttled.podsCount foreach { value =>
+        val tags = metadataTags
+        log.info(
+          s"setting gauge '${statusPCGauge.name}{${tags.values.mkString(",")}}' value with ${b2i(value)}")
+        statusPCGauge.refine(tags).set(b2i(value))
+
       }
 
-      status.used.foreach { rq =>
+      status.used.resourceRequests foreach { rq =>
         val tags  = metadataTags ++ resourceQuantityToTag(rq)
         val value = resourceQuantityToLong(rq)
         log.debug(
-          s"setting gauge '${usedGauge.name}{${tags.values.mkString(",")}}' value with ${value}")
-        usedGauge.refine(tags).set(value)
+          s"setting gauge '${usedRRGauge.name}{${tags.values.mkString(",")}}' value with ${value}")
+        usedRRGauge.refine(tags).set(value)
+      }
+      status.used.podsCount foreach { value =>
+        val tags = metadataTags
+        log.debug(
+          s"setting gauge '${usedPCGauge.name}{${tags.values.mkString(",")}}' value with ${value}")
+        usedPCGauge.refine(tags).set(value)
       }
     }
   }
@@ -760,33 +795,10 @@ trait ThrottleControllerMetrics extends MetricsBase {
 
 trait ClusterThrottleControllerLogic {
 
-  def isClusterThrottleActiveFor(pod: Pod, clthrottle: v1alpha1.ClusterThrottle): Boolean = {
-    clthrottle.spec.selector.matches(pod.metadata.labels) && clthrottle.status.exists { st =>
-      pod.totalRequests.keys.map(rs => st.throttled.getOrElse(rs, false)).exists(_ == true)
-    }
-  }
-
-  def isClusterThrottleInsufficientFor(pod: Pod, clthrottle: v1alpha1.ClusterThrottle): Boolean = {
-    clthrottle.spec.selector.matches(pod.metadata.labels) && {
-      val podTotalRequests = pod.totalRequests
-      val threshold        = clthrottle.spec.threshold
-      val used             = clthrottle.status.map(_.used).getOrElse(Map.empty)
-
-      val enoughSpaces = for {
-        (r, q) <- podTotalRequests.toList
-      } yield {
-        if (threshold.contains(r)) {
-          val uq = used.getOrElse(r, Quantity("0"))
-          ((uq add q) compare threshold(r)) <= 0
-        } else {
-          true
-        }
-      }
-
-      enoughSpaces.exists(!_)
-    }
-  }
-
+  def isClusterThrottleActiveFor(pod: Pod, clthrottle: v1alpha1.ClusterThrottle): Boolean =
+    clthrottle.isActiveFor(pod)
+  def isClusterThrottleInsufficientFor(pod: Pod, clthrottle: v1alpha1.ClusterThrottle): Boolean =
+    clthrottle.isInsufficientFor(pod)
   def calcNextClusterThrottleStatuses(
       targetClusterThrottles: Set[v1alpha1.ClusterThrottle],
       podsInAllNamespaces: Set[Pod]
@@ -797,24 +809,19 @@ trait ClusterThrottleControllerLogic {
 
       matchedPods = podsInAllNamespaces.filter(p =>
         clthrottle.spec.selector.matches(p.metadata.labels))
-      running      = matchedPods.filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
-      usedResource = running.toList.map(_.totalRequests).foldLeft(Map.empty: ResourceList)(_ add _)
-
-      throttled = clthrottle.spec.threshold.keys.map { resource =>
-        if (usedResource.contains(resource)) {
-          if (usedResource(resource) < clthrottle.spec.threshold(resource)) {
-            resource -> false
-          } else {
-            resource -> true
-          }
-        } else {
-          resource -> false
+      running = matchedPods.filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
+      usedResource = v1alpha1.ResourceAmount(
+        podsCount = clthrottle.spec.threshold.podsCount.map(_ => running.size),
+        resourceRequests = {
+          val actual =
+            running.toList.map(_.totalRequests).foldLeft(Map.empty: ResourceList)(_ add _)
+          val ret = for {
+            (r, _) <- clthrottle.spec.threshold.resourceRequests if actual.contains(r)
+          } yield r -> actual(r)
+          ret
         }
-      }.toMap
-      nextStatus = v1alpha1.ClusterThrottle.Status(
-        throttled = throttled,
-        used = usedResource
       )
+      nextStatus = clthrottle.spec.statusFor(usedResource)
 
       toUpdate <- if (clthrottle.status != Option(nextStatus)) {
                    List(clthrottle.key -> nextStatus)

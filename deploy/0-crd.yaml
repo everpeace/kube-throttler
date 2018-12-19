@@ -72,3 +72,8 @@ spec:
               type: object
             threshold:
               type: object
+              properties:
+                podsCount:
+                  type: integer
+                resourceRequests:
+                  type: object

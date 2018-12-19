@@ -75,27 +75,39 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
 
   def dummyActiveClusterThrottleFor(p: Pod) = {
     v1alpha1
-      .ClusterThrottle("clusterthrottle",
-                       v1alpha1.ClusterThrottle.Spec(
-                         throttlerName = "kube-throttler",
-                         selector = LabelSelector(),
-                         threshold = Map("cpu" -> Quantity("1"))
-                       ))
+      .ClusterThrottle(
+        "clusterthrottle",
+        v1alpha1.ClusterThrottle.Spec(
+          throttlerName = "kube-throttler",
+          selector = LabelSelector(),
+          threshold = ResourceAmount(
+            resourceRequests = Map("cpu" -> Quantity("1"))
+          )
+        )
+      )
       .withStatus(
         v1alpha1.ClusterThrottle.Status(
-          throttled = Map("cpu" -> true),
-          used = Map("cpu"      -> Quantity("2"))
+          throttled = IsResourceThrottled(
+            resourceRequests = Map("cpu" -> true)
+          ),
+          used = ResourceAmount(
+            resourceRequests = Map("cpu" -> Quantity("2"))
+          )
         ))
   }
 
   def dummyInsufficientClusterThrottleFor(p: Pod) = {
     v1alpha1
-      .ClusterThrottle("nospacethrottle",
-                       v1alpha1.ClusterThrottle.Spec(
-                         throttlerName = "kube-throttler",
-                         selector = LabelSelector(),
-                         threshold = Map("cpu" -> Quantity("1"))
-                       ))
+      .ClusterThrottle(
+        "nospacethrottle",
+        v1alpha1.ClusterThrottle.Spec(
+          throttlerName = "kube-throttler",
+          selector = LabelSelector(),
+          threshold = ResourceAmount(
+            resourceRequests = Map("cpu" -> Quantity("1"))
+          )
+        )
+      )
   }
 
   val dummyThrottleController = system.actorOf(
