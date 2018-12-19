@@ -842,7 +842,7 @@ trait ThrottleControllerLogic {
 
       matchedPods = podsInNs.filter(p => throttle.spec.selector.matches(p.metadata.labels))
       running     = matchedPods.filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
-      usedResource = v1alpha1.Throttle.ResourceAmount(
+      usedResource = v1alpha1.ResourceAmount(
         podsCount = throttle.spec.threshold.podsCount.map(_ => running.size),
         resourceRequests = {
           val actual =

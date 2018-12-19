@@ -16,6 +16,7 @@
 
 package com.github.everpeace.k8s.throttler.crd
 
+import skuber.Resource.ResourceList
 import skuber.{CustomResource, ListResource}
 
 package object v1alpha1 {
@@ -26,6 +27,28 @@ package object v1alpha1 {
     CustomResource[v1alpha1.ClusterThrottle.Spec, v1alpha1.ClusterThrottle.Status]
   type ClusterThrottleList = ListResource[ClusterThrottle]
 
-  object Implicits extends v1alpha1.Throttle.Implicits with v1alpha1.ClusterThrottle.Implicits
+  case class ResourceAmount(
+      podsCount: Option[Int] = None,
+      resourceRequests: ResourceList = Map.empty)
+
+  case class IsResourceThrottled(
+      podsCount: Option[Boolean] = None,
+      resourceRequests: Map[String, Boolean] = Map.empty)
+
+  trait CommonJsonFormat {
+    import play.api.libs.json._
+    import skuber.json.format._
+
+    implicit val throttleResourceAmountFmt: Format[v1alpha1.ResourceAmount] =
+      Json.format[v1alpha1.ResourceAmount]
+
+    implicit val throttleIsResourceThrottleFmt: Format[v1alpha1.IsResourceThrottled] =
+      Json.format[v1alpha1.IsResourceThrottled]
+  }
+
+  object Implicits
+      extends v1alpha1.Throttle.Implicits
+      with v1alpha1.ClusterThrottle.Implicits
+      with CommonJsonFormat
 
 }

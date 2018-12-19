@@ -16,16 +16,13 @@
 
 package com.github.everpeace.k8s.throttler
 import akka.actor.{Actor, Props}
-import akka.testkit._
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.testkit.{RouteTestTimeout, ScalatestRouteTest}
+import akka.testkit._
 import akka.util.{ByteString, Timeout}
 import com.github.everpeace.k8s.throttler.controller.ThrottleController
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
-import com.github.everpeace.k8s.throttler.crd.v1alpha1.Throttle.{
-  IsResourceThrottled,
-  ResourceAmount
-}
+import com.github.everpeace.k8s.throttler.crd.v1alpha1.{IsResourceThrottled, ResourceAmount}
 import de.heikoseeberger.akkahttpplayjson.PlayJsonSupport
 import io.k8s.pkg.scheduler.api.v1.ExtenderFilterResult
 import io.k8s.pkg.scheduler.api.v1.Implicits._

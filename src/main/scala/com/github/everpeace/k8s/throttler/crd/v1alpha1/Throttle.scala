@@ -19,7 +19,7 @@ package com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
-import skuber.Resource.{Quantity, ResourceList}
+import skuber.Resource.Quantity
 import skuber.ResourceSpecification.Subresources
 import skuber.apiextensions.CustomResourceDefinition
 import skuber.{
@@ -33,15 +33,7 @@ import skuber.{
 
 object Throttle {
 
-  case class ResourceAmount(
-      podsCount: Option[Int] = None,
-      resourceRequests: ResourceList = Map.empty)
-
   case class Spec(throttlerName: String, selector: LabelSelector, threshold: ResourceAmount)
-
-  case class IsResourceThrottled(
-      podsCount: Option[Boolean] = None,
-      resourceRequests: Map[String, Boolean] = Map.empty)
 
   case class Status(throttled: IsResourceThrottled, used: ResourceAmount)
 
@@ -49,16 +41,10 @@ object Throttle {
 
   def apply(name: String, spec: Spec) = CustomResource[Spec, Status](spec).withName(name)
 
-  trait JsonFormat {
+  trait JsonFormat extends CommonJsonFormat {
     import play.api.libs.functional.syntax._
     import play.api.libs.json._
     import skuber.json.format._
-    
-    implicit val throttleResourceAmountFmt: Format[v1alpha1.Throttle.ResourceAmount] =
-      Json.format[v1alpha1.Throttle.ResourceAmount]
-
-    implicit val throttleIsResourceThrottleFmt: Format[v1alpha1.Throttle.IsResourceThrottled] =
-      Json.format[v1alpha1.Throttle.IsResourceThrottled]
 
     implicit val throttleSpecFmt: Format[v1alpha1.Throttle.Spec] = (
       (JsPath \ "throttlerName").formatMaybeEmptyString(true) and
@@ -76,7 +62,7 @@ object Throttle {
 
     implicit class ThrottleSpecSyntax(spec: Spec) {
       def statusFor(used: ResourceAmount): Status = {
-        val throttled = v1alpha1.Throttle.IsResourceThrottled(
+        val throttled = v1alpha1.IsResourceThrottled(
           podsCount = for {
             th <- spec.threshold.podsCount
             c  <- used.podsCount.orElse(Option(0))
@@ -119,7 +105,7 @@ object Throttle {
           val podTotalRequests = pod.totalRequests
           val threshold        = throttle.spec.threshold
           val used =
-            throttle.status.map(_.used).getOrElse(v1alpha1.Throttle.ResourceAmount(None, Map.empty))
+            throttle.status.map(_.used).getOrElse(v1alpha1.ResourceAmount(None, Map.empty))
 
           lazy val podsCountInsufficient = (for {
             th <- threshold.podsCount

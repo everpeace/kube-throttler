@@ -17,10 +17,7 @@
 package com.github.everpeace.k8s.throttler.controller
 
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
-import com.github.everpeace.k8s.throttler.crd.v1alpha1.Throttle.{
-  IsResourceThrottled,
-  ResourceAmount
-}
+import com.github.everpeace.k8s.throttler.crd.v1alpha1.{IsResourceThrottled, ResourceAmount}
 import org.scalatest.{FreeSpec, Matchers}
 import skuber.LabelSelector.IsEqualRequirement
 import skuber.Resource.{Quantity, ResourceList}

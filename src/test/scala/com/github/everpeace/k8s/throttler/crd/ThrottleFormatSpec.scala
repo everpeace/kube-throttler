@@ -17,10 +17,7 @@
 package com.github.everpeace.k8s.throttler.crd
 
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
-import com.github.everpeace.k8s.throttler.crd.v1alpha1.Throttle.{
-  IsResourceThrottled,
-  ResourceAmount
-}
+import com.github.everpeace.k8s.throttler.crd.v1alpha1.{IsResourceThrottled, ResourceAmount}
 import org.scalatest.{FreeSpec, Matchers}
 import play.api.libs.json._
 import skuber.LabelSelector
