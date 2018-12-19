@@ -88,7 +88,7 @@ object Throttle {
     }
 
     implicit class ThrottleSyntax(throttle: Throttle) {
-      def isThrottleActiveFor(pod: Pod): Boolean = {
+      def isActiveFor(pod: Pod): Boolean = {
         lazy val isTarget = throttle.spec.selector.matches(pod.metadata.labels)
         lazy val isActive = throttle.status.exists { st =>
           lazy val isPodCountActive = st.throttled.podsCount.exists(identity)
@@ -100,7 +100,7 @@ object Throttle {
         isTarget && isActive
       }
 
-      def isThrottleInsufficientFor(pod: Pod): Boolean = {
+      def isInsufficientFor(pod: Pod): Boolean = {
         throttle.spec.selector.matches(pod.metadata.labels) && {
           val podTotalRequests = pod.totalRequests
           val threshold        = throttle.spec.threshold
