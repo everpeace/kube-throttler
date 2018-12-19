@@ -2,7 +2,7 @@
 [![Build Status](https://travis-ci.org/everpeace/kube-throttler.svg?branch=master)](https://travis-ci.org/everpeace/kube-throttler) 
 [![Docker Pulls](https://img.shields.io/docker/pulls/everpeace/kube-throttler.svg)](https://hub.docker.com/r/everpeace/kube-throttler/)
 
-`kube-throttler` enables you to throttle your pods.   It means that `kube-throttler` can prohibit to schedule any pods when it detects total amount of computational resource of `Running` pods may exceeds a threshold (in terms of `resources.requests` field).
+`kube-throttler` enables you to throttle your pods.   It means that `kube-throttler` can prohibit to schedule any pods when it detects total amount of computational resource(in terms of `resources.requests` field) or the count of `Running` pods may exceeds a threshold .
 
 `kube-throttler` provides you very flexible and fine-grained throttle control.  You can specify a set of pods which you want to throttle by [label selector](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/) and its threshold by `Throttle`/`ClusterThrottle` CRD (see [deploy/0-crd.yaml](deploy/0-crd.yaml) for complete definition).
 
@@ -70,11 +70,13 @@ a `Throttle` custom resource defines three things:
 - throttler name which is responsible for this `Throttle` custom resource.
 - a set of pods to which the throttle affects by `selector`
   - please note that throttler only counts running pods which is responsible for configured target scheduler names.
-- threshold of amount of `request`-ed computational resource of the throttle
+- threshold of 
+  - resource amount of `request`-ed computational resource of the throttle
+  - count of resources (currently only `pod` is supported)
 
 And it also has `status` field:
  
-- `status` filed shows throttle status for each resources defined in threshold setting and current total usage of `reauest`-ed resource of `Running` pods matching `selector`
+- `status` filed shows throttle status for each resource requests or resource counts defined in threshold setting and current total usage of `reauest`-ed resource amount or counts of `Running` pods matching `selector`
 
 ```yaml
 # example/throttle.yaml
@@ -90,20 +92,30 @@ spec:
     matchLabels:
       throttle: t1
   # you can set a threshold of the throttle
-  # limiting total amount of resource whichRunning pods can `requests` 
   threshold:
-    cpu: 200m
+    # limiting total count of resources
+    resourceCounts:
+      # limiting count of running pods
+      pod: 3 
+    # limiting total amount of resource which running pods can `requests`
+    resourceRequests: 
+      cpu: 200m
 status:
-  # 'throttled' shows throttle status for each resource defined in spec.threshold.
+  # 'throttled' shows throttle status defined in spec.threshold.
   # when you tried to create a pod, all your 'request'-ed resource's throttle 
-  # should not throttled
+  # and count of resources should not be throttled
   throttled:
-    cpu: true
-  # 'used' shows total 'request'-ed resource amount of 'Running' pods 
+    resourceCounts:
+      pod: false
+    resourceRequests:
+      cpu: true
+  # 'used' shows total 'request'-ed resource amount and count of 'Running' pods 
   # matching spec.selector
   used:
-    cpu: 300m
-    memory: 10Gi
+    resourceCounts:
+      pod: 1
+    resourceRequests:
+      cpu: 300m
 ```
 
 ## How `kube-throttler` works
@@ -135,11 +147,18 @@ spec:
     matchLabels:
       throttle: t1
   threshold:
-    cpu: 200m
-    memory: 1Gi
+    resourceCounts:
+      pod: 5
+    resourceRequests:
+      cpu: 200m
+      memory: 1Gi
 status:
   throttled:
-    cpu: false
+    resourceCounts:
+      pod: false
+    resourceRequests:
+      cpu: false
+      memory: false
   used: {}
 ```
 
@@ -156,10 +175,16 @@ $ kubectl get throttle t1 -o yaml
 ...
 status:
   throttled:
-    cpu: true
-    memory: false
+    resourceCounts:
+      pod: false
+    resourceRequests:
+      cpu: true
+      memory: false
   used:
-    cpu: "0.200"
+    resourceCounts:
+      pod: 1
+    resourceRequests:
+      cpu: "0.200"
 ```
 
 Next, create another pod then you will see the pod will be throttled and keep stay `Pending` state by `kube-throttler`.
@@ -185,11 +210,17 @@ $ kubectl get throttle t1 -o yaml
 ...
 status:
   throttled:
-    cpu: true
-    memory: false
+    resourceCounts:
+      pod: false
+    resourceRequests:
+      cpu: true
+      memory: false
   used:
-    cpu: "0.200"
-    memory: "536870912"
+    resourceCounts:
+      pod: 2
+    resourceRequests:
+      cpu: "0.200"
+      memory: "536870912"
 ```
 
 Then, update `t1` threshold with `cpu=700m`
@@ -220,15 +251,24 @@ spec:
     matchLabels:
       throttle: t1
   threshold:
-    cpu: 700m
-    memory: 1Gi
+    resourceCounts:
+      pod: 5
+    resourceRequests:
+      cpu: 700m
+      memory: 1Gi
 status:
-  throttled: 
-    cpu: false
-    memory: false
+  throttled:
+    resourceCounts:
+      pod: false
+    resourceRequests:
+      cpu: false
+      memory: false
   used:
-    cpu: "0.500"
-    memory: "536870912"
+    resourceCounts:
+      pod: 3
+    resourceRequests:
+      cpu: "0.500"
+      memory: "536870912"
 ``` 
 
 Now, `t1` remains `cpu:200m` capacity.  Then, create `pod3` requesting `cpu:300m`.  `pod3` stays `Pending` state because `t1` does not have enough capacity on `cpu` resources.  
@@ -253,12 +293,18 @@ Events:
 
 | metrics name | definition | example |
 --------------|------------|---------   
-| throttle_status_throttled | the throttle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`throttle_status_throttled{name="t1", namespace="default",uuid="...",resource="cpu"} 1.0`     
-| throttle_status_used | used amount of resource of the throttle |`throttle_status_used{name="t1", namespace="default",uuid="...",resource="cpu"} 200`     
-| throttle_spec_threshold | threshold on specific resource of the throttle |`throttle_spec_threshold{name="t1", namespace="default",uuid="...",resource="cpu"} 200`     
-| clusterthrottle_status_throttled | the clusterthrottle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`clusterthrottle_status_throttled{name="ct1", uuid="...",resource="cpu"} 1.0`     
-| clusterthrottle_status_used | used amount of resource of the clusterthrottle |`clusterthrottle_status_used{name="ct1", uuid="...",resource="cpu"} 200`     
-| clusterthrottle_spec_threshold | threshold on specific resource of the clusterthrottle |`clusterthrottle_spec_threshold{name="ct1", uuid="...",resource="cpu"} 200`     
+| throttle_status_throttled_resourceRequests | resourceRequests of the throttle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`throttle_status_throttled_resourceRequests{name="t1", namespace="default",uuid="...",resource="cpu"} 1.0`     
+| throttle_status_throttled_resourceCounts | resourceCounts of the throttle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`throttle_status_throttled_resourceRequests{name="t1", namespace="default",uuid="...",resource="pod"} 1.0`     
+| throttle_status_used_resourceRequests | used amount of resource requests of the throttle |`throttle_status_used_resourceRequests{name="t1", namespace="default",uuid="...",resource="cpu"} 200`     
+| throttle_status_used_resourceCounts | used resource counts of the throttle |`throttle_status_used_resourceCounts{name="t1", namespace="default",uuid="...",resource="pod"} 2`     
+| throttle_spec_threshold_resourceRequests | threshold on specific resourceRequests of the throttle |`throttle_spec_threshold_resourceRequests{name="t1", namespace="default",uuid="...",resource="pod"} 2`     
+| throttle_spec_threshold_resourceCounts | threshold on specific resourceCounts of the throttle |`throttle_spec_threshold_resourceCounts{name="t1", namespace="default",uuid="...",resource="cpu"} 200`     
+| clusterthrottle_status_throttled_resourceRequests | resourceRequests of the clusterthrottle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`clusterthrottle_status_throttled_resourceRequests{name="clt1",uuid="...",resource="cpu"} 1.0`     
+| clusterthrottle_status_throttled_resourceCounts | resourceCounts of the clusterthrottle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`clusterthrottle_status_throttled_resourceRequests{name="clt1",uuid="...",resource="pod"} 1.0`     
+| clusterthrottle_status_used_resourceRequests | used amount of resource requests of the clusterthrottle |`clusterthrottle_status_used_resourceRequests{name="t1",uuid="...",resource="cpu"} 200`     
+| clusterthrottle_status_used_resourceCounts | used resource counts of the clusterthrottle |`clusterthrottle_status_used_resourceCounts{name="clt1",uuid="...",resource="pod"} 2`     
+| clusterthrottle_spec_threshold_resourceRequests | threshold on specific resourceRequests of the clusterthrottle |`clusterthrottle_spec_threshold_resourceRequests{name="t1",uuid="...",resource="pod"} 2`     
+| clusterthrottle_spec_threshold_resourceCounts | threshold on specific resourceCounts of the clusterthrottle |`clusterthrottle_spec_threshold_resourceCounts{name="t1",uuid="...",resource="cpu"} 200`     
 
 other metrics exported by [kamon-system-metrics](https://github.com/kamon-io/kamon-system-metrics), [kamon-akka](https://github.com/kamon-io/kamon-akka), [kamon-akka-http](https://github.com/kamon-io/kamon-akka-http) are available.
 
