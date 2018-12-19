@@ -1,7 +1,7 @@
 import sbt._
 
 object Dependencies {
-  lazy val skuber = "io.skuber" %% "skuber" % "2.0.11"
+  lazy val skuber = "io.skuber" %% "skuber" % "2.0.12"
   lazy val catsCore = "org.typelevel" %% "cats-core" % "1.2.0"
   lazy val akkHttpPlayJson = "de.heikoseeberger" %% "akka-http-play-json" % "1.21.0"
   object healthchecks {
