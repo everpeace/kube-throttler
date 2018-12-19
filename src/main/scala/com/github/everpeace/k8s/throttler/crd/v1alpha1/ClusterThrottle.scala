@@ -16,10 +16,18 @@
 
 package com.github.everpeace.k8s.throttler.crd.v1alpha1
 
+import com.github.everpeace.k8s.throttler
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
-import skuber.{CustomResource, LabelSelector}
-import skuber.Resource.ResourceList
+import skuber.{
+  CustomResource,
+  HasStatusSubresource,
+  LabelSelector,
+  ResourceDefinition,
+  ResourceSpecification
+}
+import skuber.Resource.{Quantity, ResourceList}
+import skuber.ResourceSpecification.Subresources
 import skuber.apiextensions.CustomResourceDefinition
 
 object ClusterThrottle {
@@ -32,4 +40,35 @@ object ClusterThrottle {
 
   def apply(name: String, spec: Spec) = CustomResource[Spec, Status](spec).withName(name)
 
+  trait JsonFormats {
+    import play.api.libs.functional.syntax._
+    import play.api.libs.json._
+    import skuber.json.format._
+
+    implicit val clusterThrottleSpecFmt: Format[v1alpha1.ClusterThrottle.Spec] = (
+      (JsPath \ "throttlerName").formatMaybeEmptyString(true) and
+        (JsPath \ "selector").formatLabelSelector and
+        (JsPath \ "threshold").formatMaybeEmptyMap[Quantity]
+    )(v1alpha1.ClusterThrottle.Spec.apply, unlift(v1alpha1.ClusterThrottle.Spec.unapply))
+
+    implicit val clusterThrottleStatusFmt: Format[v1alpha1.ClusterThrottle.Status] =
+      Json.format[v1alpha1.ClusterThrottle.Status]
+  }
+
+  trait Implicits extends JsonFormats {
+    implicit val clusterThrottleResourceDefinition: ResourceDefinition[ClusterThrottle] =
+      ResourceDefinition[ClusterThrottle](
+        group = throttler.crd.Group,
+        version = "v1alpha1",
+        kind = throttler.crd.ClusterThrottle.Kind,
+        scope = ResourceSpecification.Scope.Cluster,
+        singular = Option(throttler.crd.ClusterThrottle.SingularName),
+        plural = Option(throttler.crd.ClusterThrottle.PluralName),
+        shortNames = throttler.crd.ClusterThrottle.ShortNames,
+        subresources = Some(Subresources().withStatusSubresource)
+      )
+
+    implicit val clusterThrottleStatusSubEnabled: HasStatusSubresource[ClusterThrottle] =
+      CustomResource.statusMethodsEnabler[ClusterThrottle]
+  }
 }
