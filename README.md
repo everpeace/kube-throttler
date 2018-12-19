@@ -321,6 +321,12 @@ Apache License 2.0
 
 # Change Logs
 
+## `0.3.0`
+- Added
+  - `resourceCounts.pod` in `Throttle`/`ClusterThrottle` so that user can throttle count of `running` pod.
+- Changed
+  - previous compute resource threshold should be defined in `resourceRequests.{cpu|memory}`.
+ 
 ## `0.2.0`
 - introduce `ClusterThrottle` which can target pods in multiple namespaces.
 - make `Throttle`/`ClusterThrottle` not burstable. This means if some throttle remains `cpu:200m` and pod requesting `cpu:300` is trie to schedule, kube-throttler does not allow the pod to be scheduled.  At that case, message of `throttles[insufficient]=<throttle name>` will be returned to scheduler.
