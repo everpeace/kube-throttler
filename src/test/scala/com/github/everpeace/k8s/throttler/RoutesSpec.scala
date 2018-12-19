@@ -16,12 +16,13 @@
 
 package com.github.everpeace.k8s.throttler
 import akka.actor.{Actor, Props}
-import akka.testkit._
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.testkit.{RouteTestTimeout, ScalatestRouteTest}
+import akka.testkit._
 import akka.util.{ByteString, Timeout}
 import com.github.everpeace.k8s.throttler.controller.ThrottleController
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
+import com.github.everpeace.k8s.throttler.crd.v1alpha1.{IsResourceAmountThrottled, ResourceAmount}
 import de.heikoseeberger.akkahttpplayjson.PlayJsonSupport
 import io.k8s.pkg.scheduler.api.v1.ExtenderFilterResult
 import io.k8s.pkg.scheduler.api.v1.Implicits._
@@ -35,54 +36,78 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
 
   def dummyActiveThrottleFor(p: Pod) = {
     v1alpha1
-      .Throttle("throttle",
-                v1alpha1.Throttle.Spec(
-                  throttlerName = "kube-throttler",
-                  selector = LabelSelector(),
-                  threshold = Map("cpu" -> Quantity("1"))
-                ))
+      .Throttle(
+        "throttle",
+        v1alpha1.Throttle.Spec(
+          throttlerName = "kube-throttler",
+          selector = LabelSelector(),
+          threshold = ResourceAmount(
+            resourceRequests = Map("cpu" -> Quantity("1"))
+          )
+        )
+      )
       .withNamespace(p.namespace)
       .withStatus(
         v1alpha1.Throttle.Status(
-          throttled = Map("cpu" -> true),
-          used = Map("cpu"      -> Quantity("2"))
+          throttled = IsResourceAmountThrottled(
+            resourceRequests = Map("cpu" -> true)
+          ),
+          used = ResourceAmount(
+            resourceRequests = Map("cpu" -> Quantity("2"))
+          )
         ))
   }
 
   def dummyInsufficientThrottleFor(p: Pod) = {
     v1alpha1
-      .Throttle("nospacethrottle",
-                v1alpha1.Throttle.Spec(
-                  throttlerName = "kube-throttler",
-                  selector = LabelSelector(),
-                  threshold = Map("cpu" -> Quantity("1"))
-                ))
+      .Throttle(
+        "nospacethrottle",
+        v1alpha1.Throttle.Spec(
+          throttlerName = "kube-throttler",
+          selector = LabelSelector(),
+          threshold = ResourceAmount(
+            resourceRequests = Map("cpu" -> Quantity("1"))
+          )
+        )
+      )
       .withNamespace(p.namespace)
   }
 
   def dummyActiveClusterThrottleFor(p: Pod) = {
     v1alpha1
-      .ClusterThrottle("clusterthrottle",
-                       v1alpha1.ClusterThrottle.Spec(
-                         throttlerName = "kube-throttler",
-                         selector = LabelSelector(),
-                         threshold = Map("cpu" -> Quantity("1"))
-                       ))
+      .ClusterThrottle(
+        "clusterthrottle",
+        v1alpha1.ClusterThrottle.Spec(
+          throttlerName = "kube-throttler",
+          selector = LabelSelector(),
+          threshold = ResourceAmount(
+            resourceRequests = Map("cpu" -> Quantity("1"))
+          )
+        )
+      )
       .withStatus(
         v1alpha1.ClusterThrottle.Status(
-          throttled = Map("cpu" -> true),
-          used = Map("cpu"      -> Quantity("2"))
+          throttled = IsResourceAmountThrottled(
+            resourceRequests = Map("cpu" -> true)
+          ),
+          used = ResourceAmount(
+            resourceRequests = Map("cpu" -> Quantity("2"))
+          )
         ))
   }
 
   def dummyInsufficientClusterThrottleFor(p: Pod) = {
     v1alpha1
-      .ClusterThrottle("nospacethrottle",
-                       v1alpha1.ClusterThrottle.Spec(
-                         throttlerName = "kube-throttler",
-                         selector = LabelSelector(),
-                         threshold = Map("cpu" -> Quantity("1"))
-                       ))
+      .ClusterThrottle(
+        "nospacethrottle",
+        v1alpha1.ClusterThrottle.Spec(
+          throttlerName = "kube-throttler",
+          selector = LabelSelector(),
+          threshold = ResourceAmount(
+            resourceRequests = Map("cpu" -> Quantity("1"))
+          )
+        )
+      )
   }
 
   val dummyThrottleController = system.actorOf(

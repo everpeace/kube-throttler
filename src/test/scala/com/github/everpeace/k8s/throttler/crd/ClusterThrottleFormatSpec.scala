@@ -17,6 +17,12 @@
 package com.github.everpeace.k8s.throttler.crd
 
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
+import com.github.everpeace.k8s.throttler.crd.v1alpha1.{
+  IsResourceAmountThrottled,
+  IsResourceCountThrottled,
+  ResourceAmount,
+  ResourceCount
+}
 import org.scalatest.{FreeSpec, Matchers}
 import play.api.libs.json._
 import skuber.LabelSelector
@@ -42,21 +48,36 @@ class ClusterThrottleFormatSpec extends FreeSpec with Matchers {
            |      }
            |    },
            |    "threshold": {
-           |      "cpu": "10",
-           |      "memory": "15Gi",
-           |      "nvidia.com/gpu": "10"
+           |      "resourceCounts": {
+           |        "pod": 10
+           |      },
+           |      "resourceRequests": {
+           |        "cpu": "10",
+           |        "memory": "15Gi",
+           |        "nvidia.com/gpu": "10"
+           |      }
            |    }
            |  },
            |  "status": {
            |    "throttled": {
-           |      "cpu": true,
-           |      "memory": false,
-           |      "nvidia.com/gpu": true
+           |      "resourceCounts": {
+           |        "pod": false
+           |      },
+           |      "resourceRequests": {
+           |        "cpu": true,
+           |        "memory": false,
+           |        "nvidia.com/gpu": true
+           |      }
            |    },
            |    "used": {
-           |      "cpu": "12",
-           |      "memory": "12Gi",
-           |      "nvidia.com/gpu": "12"
+           |      "resourceCounts": {
+           |        "pod": 5
+           |      },
+           |      "resourceRequests": {
+           |        "cpu": "12",
+           |        "memory": "12Gi",
+           |        "nvidia.com/gpu": "12"
+           |      }
            |    }
            |  }
            |}
@@ -68,23 +89,39 @@ class ClusterThrottleFormatSpec extends FreeSpec with Matchers {
           spec = v1alpha1.ClusterThrottle.Spec(
             throttlerName = "kube-throttler",
             selector = LabelSelector(IsEqualRequirement("key", "value")),
-            threshold = Map(
-              "cpu"            -> Quantity("10"),
-              "memory"         -> Quantity("15Gi"),
-              "nvidia.com/gpu" -> Quantity("10")
+            threshold = ResourceAmount(
+              resourceCounts = Option(
+                ResourceCount(
+                  pod = Option(10)
+                )),
+              resourceRequests = Map(
+                "cpu"            -> Quantity("10"),
+                "memory"         -> Quantity("15Gi"),
+                "nvidia.com/gpu" -> Quantity("10")
+              )
             )
           )
         )
         .withStatus(v1alpha1.ClusterThrottle.Status(
-          throttled = Map(
-            "cpu"            -> true,
-            "memory"         -> false,
-            "nvidia.com/gpu" -> true
+          throttled = IsResourceAmountThrottled(
+            resourceCounts = Option(IsResourceCountThrottled(
+              pod = Option(false)
+            )),
+            resourceRequests = Map(
+              "cpu"            -> true,
+              "memory"         -> false,
+              "nvidia.com/gpu" -> true
+            )
           ),
-          used = Map(
-            "cpu"            -> Quantity("12"),
-            "memory"         -> Quantity("12Gi"),
-            "nvidia.com/gpu" -> Quantity("12")
+          used = ResourceAmount(
+            resourceCounts = Option(ResourceCount(
+              pod = Option(5)
+            )),
+            resourceRequests = Map(
+              "cpu"            -> Quantity("12"),
+              "memory"         -> Quantity("12Gi"),
+              "nvidia.com/gpu" -> Quantity("12")
+            )
           )
         ))
 

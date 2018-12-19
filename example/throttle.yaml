@@ -8,6 +8,9 @@ spec:
     matchLabels:
       throttle: t1
   threshold:
-    cpu: 200m
-    memory: 1Gi
+    resourceCounts:
+      pod: 5
+    resourceRequests:
+      cpu: 200m
+      memory: 1Gi
 
