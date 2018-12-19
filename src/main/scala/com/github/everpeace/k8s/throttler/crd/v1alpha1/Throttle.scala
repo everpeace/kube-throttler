@@ -35,7 +35,7 @@ object Throttle {
 
   case class Spec(throttlerName: String, selector: LabelSelector, threshold: ResourceAmount)
 
-  case class Status(throttled: IsResourceThrottled, used: ResourceAmount)
+  case class Status(throttled: IsResourceAmountThrottled, used: ResourceAmount)
 
   val crd: CustomResourceDefinition = CustomResourceDefinition[v1alpha1.Throttle]
 
@@ -62,11 +62,12 @@ object Throttle {
 
     implicit class ThrottleSpecSyntax(spec: Spec) {
       def statusFor(used: ResourceAmount): Status = {
-        val throttled = v1alpha1.IsResourceThrottled(
-          podsCount = for {
-            th <- spec.threshold.podsCount
-            c  <- used.podsCount.orElse(Option(0))
-          } yield th <= c,
+        val throttled = v1alpha1.IsResourceAmountThrottled(
+          resourceCounts = for {
+            rc <- spec.threshold.resourceCounts
+            th <- rc.pod
+            c  <- used.resourceCounts.flatMap(_.pod).orElse(Option(0))
+          } yield IsResourceCountThrottled(pod = Option(th <= c)),
           resourceRequests = spec.threshold.resourceRequests.keys.map { resource =>
             if (used.resourceRequests.contains(resource)) {
               if (used.resourceRequests(resource) < spec.threshold.resourceRequests(resource)) {
@@ -91,7 +92,7 @@ object Throttle {
       def isActiveFor(pod: Pod): Boolean = {
         lazy val isTarget = throttle.spec.selector.matches(pod.metadata.labels)
         lazy val isActive = throttle.status.exists { st =>
-          lazy val isPodCountActive = st.throttled.podsCount.exists(identity)
+          lazy val isPodCountActive = st.throttled.resourceCounts.flatMap(_.pod).exists(identity)
           lazy val isResourceActive = pod.totalRequests.keys
             .map(rs => st.throttled.resourceRequests.getOrElse(rs, false))
             .exists(identity)
@@ -108,8 +109,9 @@ object Throttle {
             throttle.status.map(_.used).getOrElse(v1alpha1.ResourceAmount(None, Map.empty))
 
           lazy val podsCountInsufficient = (for {
-            th <- threshold.podsCount
-            u  <- used.podsCount.orElse(Option(0))
+            rc <- threshold.resourceCounts
+            th <- rc.pod
+            u  <- used.resourceCounts.flatMap(_.pod).orElse(Option(0))
           } yield th < (u + 1)).getOrElse(false)
 
           lazy val someResourceInsufficient = for {

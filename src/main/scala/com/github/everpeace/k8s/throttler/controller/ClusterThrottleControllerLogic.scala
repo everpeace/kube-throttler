@@ -18,6 +18,7 @@ package com.github.everpeace.k8s.throttler.controller
 import com.github.everpeace.k8s._
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
+import com.github.everpeace.k8s.throttler.crd.v1alpha1.ResourceCount
 import skuber.Resource.ResourceList
 import skuber._
 
@@ -39,7 +40,10 @@ trait ClusterThrottleControllerLogic {
         clthrottle.spec.selector.matches(p.metadata.labels))
       running = matchedPods.filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
       usedResource = v1alpha1.ResourceAmount(
-        podsCount = clthrottle.spec.threshold.podsCount.map(_ => running.size),
+        resourceCounts = for {
+          rc <- clthrottle.spec.threshold.resourceCounts
+          _  <- rc.pod
+        } yield ResourceCount(pod = Option(running.size)),
         resourceRequests = {
           val actual =
             running.toList.map(_.totalRequests).foldLeft(Map.empty: ResourceList)(_ add _)

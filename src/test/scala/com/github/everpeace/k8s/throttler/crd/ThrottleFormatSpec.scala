@@ -17,7 +17,12 @@
 package com.github.everpeace.k8s.throttler.crd
 
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
-import com.github.everpeace.k8s.throttler.crd.v1alpha1.{IsResourceThrottled, ResourceAmount}
+import com.github.everpeace.k8s.throttler.crd.v1alpha1.{
+  IsResourceAmountThrottled,
+  IsResourceCountThrottled,
+  ResourceAmount,
+  ResourceCount
+}
 import org.scalatest.{FreeSpec, Matchers}
 import play.api.libs.json._
 import skuber.LabelSelector
@@ -44,7 +49,9 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
            |      }
            |    },
            |    "threshold": {
-           |      "podsCount": 10,
+           |      "resourceCounts": {
+           |        "pod": 10
+           |      },
            |      "resourceRequests": {
            |        "cpu": "10",
            |        "memory": "15Gi",
@@ -54,7 +61,9 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
            |  },
            |  "status": {
            |    "throttled": {
-           |      "podsCount": true,
+           |      "resourceCounts": {
+           |        "pod": true
+           |      },
            |      "resourceRequests": {
            |        "cpu": true,
            |        "memory": false,
@@ -62,7 +71,9 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
            |      }
            |    },
            |    "used": {
-           |      "podsCount": 12,
+           |      "resourceCounts": {
+           |        "pod": 12
+           |      },
            |      "resourceRequests": {
            |        "cpu": "12",
            |        "memory": "12Gi",
@@ -80,7 +91,10 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
             throttlerName = "kube-throttler",
             selector = LabelSelector(IsEqualRequirement("key", "value")),
             threshold = ResourceAmount(
-              podsCount = Option(10),
+              resourceCounts = Option(
+                ResourceCount(
+                  pod = Option(10)
+                )),
               resourceRequests = Map(
                 "cpu"            -> Quantity("10"),
                 "memory"         -> Quantity("15Gi"),
@@ -91,8 +105,10 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
         )
         .withNamespace("default")
         .withStatus(v1alpha1.Throttle.Status(
-          throttled = IsResourceThrottled(
-            podsCount = Option(true),
+          throttled = IsResourceAmountThrottled(
+            resourceCounts = Option(IsResourceCountThrottled(
+              pod = Option(true)
+            )),
             resourceRequests = Map(
               "cpu"            -> true,
               "memory"         -> false,
@@ -100,7 +116,9 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
             )
           ),
           used = ResourceAmount(
-            podsCount = Option(12),
+            resourceCounts = Option(ResourceCount(
+              pod = Option(12)
+            )),
             resourceRequests = Map(
               "cpu"            -> Quantity("12"),
               "memory"         -> Quantity("12Gi"),

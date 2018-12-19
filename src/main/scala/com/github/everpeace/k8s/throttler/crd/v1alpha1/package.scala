@@ -28,22 +28,32 @@ package object v1alpha1 {
   type ClusterThrottleList = ListResource[ClusterThrottle]
 
   case class ResourceAmount(
-      podsCount: Option[Int] = None,
+      resourceCounts: Option[ResourceCount] = None,
       resourceRequests: ResourceList = Map.empty)
 
-  case class IsResourceThrottled(
-      podsCount: Option[Boolean] = None,
+  case class ResourceCount(pod: Option[Int] = None)
+
+  case class IsResourceCountThrottled(pod: Option[Boolean] = None)
+
+  case class IsResourceAmountThrottled(
+      resourceCounts: Option[IsResourceCountThrottled] = None,
       resourceRequests: Map[String, Boolean] = Map.empty)
 
   trait CommonJsonFormat {
     import play.api.libs.json._
     import skuber.json.format._
 
-    implicit val throttleResourceAmountFmt: Format[v1alpha1.ResourceAmount] =
+    implicit val resourceCountsFmt: Format[v1alpha1.ResourceCount] =
+      Json.format[v1alpha1.ResourceCount]
+
+    implicit val resourceAmountFmt: Format[v1alpha1.ResourceAmount] =
       Json.format[v1alpha1.ResourceAmount]
 
-    implicit val throttleIsResourceThrottleFmt: Format[v1alpha1.IsResourceThrottled] =
-      Json.format[v1alpha1.IsResourceThrottled]
+    implicit val isResourceCountThrottledFmt: Format[v1alpha1.IsResourceCountThrottled] =
+      Json.format[v1alpha1.IsResourceCountThrottled]
+
+    implicit val isResourceThrottledFmt: Format[v1alpha1.IsResourceAmountThrottled] =
+      Json.format[v1alpha1.IsResourceAmountThrottled]
   }
 
   object Implicits

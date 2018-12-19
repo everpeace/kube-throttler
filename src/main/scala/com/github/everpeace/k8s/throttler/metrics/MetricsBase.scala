@@ -24,5 +24,6 @@ trait MetricsBase {
     case _ => q._2.amount.toLong
   }
 
-  def resourceQuantityToTag(q: (String, _)): kamon.Tags = Map("resource" -> q._1)
+  def resourceQuantityToTag(q: (String, _)): kamon.Tags   = Map("resource" -> q._1)
+  def resourceCountsTag(resourceName: String): kamon.Tags = Map("resource" -> resourceName)
 }

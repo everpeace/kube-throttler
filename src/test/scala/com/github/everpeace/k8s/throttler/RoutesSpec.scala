@@ -22,7 +22,7 @@ import akka.testkit._
 import akka.util.{ByteString, Timeout}
 import com.github.everpeace.k8s.throttler.controller.ThrottleController
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
-import com.github.everpeace.k8s.throttler.crd.v1alpha1.{IsResourceThrottled, ResourceAmount}
+import com.github.everpeace.k8s.throttler.crd.v1alpha1.{IsResourceAmountThrottled, ResourceAmount}
 import de.heikoseeberger.akkahttpplayjson.PlayJsonSupport
 import io.k8s.pkg.scheduler.api.v1.ExtenderFilterResult
 import io.k8s.pkg.scheduler.api.v1.Implicits._
@@ -49,7 +49,7 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
       .withNamespace(p.namespace)
       .withStatus(
         v1alpha1.Throttle.Status(
-          throttled = IsResourceThrottled(
+          throttled = IsResourceAmountThrottled(
             resourceRequests = Map("cpu" -> true)
           ),
           used = ResourceAmount(
@@ -87,7 +87,7 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
       )
       .withStatus(
         v1alpha1.ClusterThrottle.Status(
-          throttled = IsResourceThrottled(
+          throttled = IsResourceAmountThrottled(
             resourceRequests = Map("cpu" -> true)
           ),
           used = ResourceAmount(

@@ -33,8 +33,11 @@ spec:
             threshold:
               type: object
               properties:
-                podsCount:
-                  type: integer
+                resourceCounts:
+                  type: object
+                  properties:
+                    pod:
+                      type: integer
                 resourceRequests:
                   type: object
 ---
@@ -73,7 +76,10 @@ spec:
             threshold:
               type: object
               properties:
-                podsCount:
-                  type: integer
+                resourceCounts:
+                  type: object
+                  properties:
+                    pod:
+                      type: integer
                 resourceRequests:
                   type: object

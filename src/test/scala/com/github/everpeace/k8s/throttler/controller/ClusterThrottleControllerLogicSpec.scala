@@ -17,7 +17,12 @@
 package com.github.everpeace.k8s.throttler.controller
 
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
-import com.github.everpeace.k8s.throttler.crd.v1alpha1.{IsResourceThrottled, ResourceAmount}
+import com.github.everpeace.k8s.throttler.crd.v1alpha1.{
+  IsResourceAmountThrottled,
+  IsResourceCountThrottled,
+  ResourceAmount,
+  ResourceCount
+}
 import org.scalatest.{FreeSpec, Matchers}
 import skuber.LabelSelector.IsEqualRequirement
 import skuber.Resource.{Quantity, ResourceList}
@@ -70,7 +75,7 @@ class ClusterThrottleControllerLogicSpec
           )
           .withStatus(v1alpha1.ClusterThrottle.Status(
             // only "r" is throttled
-            throttled = IsResourceThrottled(
+            throttled = IsResourceAmountThrottled(
               resourceRequests = Map("r" -> true, "s" -> false)
             ),
             used = ResourceAmount(
@@ -107,17 +112,26 @@ class ClusterThrottleControllerLogicSpec
               throttlerName = "kube-throttler",
               selector = LabelSelector(IsEqualRequirement("key", "value")),
               threshold = ResourceAmount(
-                podsCount = Option(1)
+                resourceCounts = Option(
+                  ResourceCount(
+                    pod = Option(1)
+                  )),
               )
             )
           )
           .withStatus(
             v1alpha1.ClusterThrottle.Status(
-              throttled = IsResourceThrottled(
-                podsCount = Option(true),
+              throttled = IsResourceAmountThrottled(
+                resourceCounts = Option(
+                  IsResourceCountThrottled(
+                    pod = Option(true)
+                  )),
               ),
               used = ResourceAmount(
-                podsCount = Option(1),
+                resourceCounts = Option(
+                  ResourceCount(
+                    pod = Option(1)
+                  )),
                 resourceRequests = Map("r" -> Quantity("3"))
               )
             )
@@ -151,7 +165,7 @@ class ClusterThrottleControllerLogicSpec
           )
           .withStatus(v1alpha1.ClusterThrottle.Status(
             // only "r" is throttled
-            throttled = IsResourceThrottled(
+            throttled = IsResourceAmountThrottled(
               resourceRequests = Map("r" -> false, "s" -> false)
             ),
             used = ResourceAmount(
@@ -231,13 +245,28 @@ class ClusterThrottleControllerLogicSpec
             v1alpha1.ClusterThrottle.Spec(
               throttlerName = "kube-throttler",
               selector = LabelSelector(IsEqualRequirement("key", "value")),
-              threshold = ResourceAmount(podsCount = Option(1))
+              threshold = ResourceAmount(
+                resourceCounts = Option(
+                  ResourceCount(
+                    pod = Option(1)
+                  ))
+              )
             )
           )
           .withStatus(
             v1alpha1.ClusterThrottle.Status(
-              throttled = IsResourceThrottled(podsCount = Option(true)),
-              used = ResourceAmount(podsCount = Option(1))
+              throttled = IsResourceAmountThrottled(
+                resourceCounts = Option(
+                  IsResourceCountThrottled(
+                    pod = Option(true)
+                  ))
+              ),
+              used = ResourceAmount(
+                resourceCounts = Option(
+                  ResourceCount(
+                    pod = Option(1)
+                  ))
+              )
             )
           )
           .withName("clt1")
@@ -258,14 +287,29 @@ class ClusterThrottleControllerLogicSpec
             v1alpha1.ClusterThrottle.Spec(
               throttlerName = "kube-throttler",
               selector = LabelSelector(IsEqualRequirement("key", "value")),
-              threshold = ResourceAmount(podsCount = Option(2))
+              threshold = ResourceAmount(
+                resourceCounts = Option(
+                  ResourceCount(
+                    pod = Option(2)
+                  ))
+              )
             )
           )
           .withStatus(
             v1alpha1.ClusterThrottle.Status(
               // only "r" is throttled
-              throttled = IsResourceThrottled(podsCount = Option(false)),
-              used = ResourceAmount(podsCount = Option(1))
+              throttled = IsResourceAmountThrottled(
+                resourceCounts = Option(
+                  IsResourceCountThrottled(
+                    pod = Option(false)
+                  ))
+              ),
+              used = ResourceAmount(
+                resourceCounts = Option(
+                  ResourceCount(
+                    pod = Option(1)
+                  ))
+              )
             )
           )
           .withName("clt1")
@@ -293,7 +337,7 @@ class ClusterThrottleControllerLogicSpec
         val pods        = Set(pod)
         val clthrottles = Set(clthrottle)
         val expectedStatus = v1alpha1.ClusterThrottle.Status(
-          throttled = IsResourceThrottled(
+          throttled = IsResourceAmountThrottled(
             resourceRequests = Map("s" -> false)
           ),
           used = ResourceAmount()
@@ -329,7 +373,7 @@ class ClusterThrottleControllerLogicSpec
         val pods        = Set(pod1, pod2)
         val clthrottles = Set(clthrottle)
         val expectedStatus = v1alpha1.ClusterThrottle.Status(
-          throttled = IsResourceThrottled(
+          throttled = IsResourceAmountThrottled(
             resourceRequests = Map("r" -> true, "s" -> false)
           ),
           used = ResourceAmount(
@@ -365,7 +409,7 @@ class ClusterThrottleControllerLogicSpec
         val pods        = Set(pod)
         val clthrottles = Set(clthrottle)
         val expectedStatus = v1alpha1.ClusterThrottle.Status(
-          throttled = IsResourceThrottled(
+          throttled = IsResourceAmountThrottled(
             resourceRequests = Map("r" -> true)
           ),
           used = ResourceAmount(
@@ -401,7 +445,7 @@ class ClusterThrottleControllerLogicSpec
         val pods        = Set(pod)
         val clthrottles = Set(clthrottle)
         val expectedStatus = v1alpha1.ClusterThrottle.Status(
-          throttled = IsResourceThrottled(
+          throttled = IsResourceAmountThrottled(
             resourceRequests = Map("r" -> false)
           ),
           used = ResourceAmount(
@@ -429,7 +473,10 @@ class ClusterThrottleControllerLogicSpec
               throttlerName = "kube-throttler",
               selector = LabelSelector(IsEqualRequirement("key", "value")),
               threshold = ResourceAmount(
-                podsCount = Option(1)
+                resourceCounts = Option(
+                  ResourceCount(
+                    pod = Option(1)
+                  )),
               )
             )
           )
@@ -438,11 +485,17 @@ class ClusterThrottleControllerLogicSpec
         val pods             = Set(pod)
         val clusterthrottles = Set(clusterthrottle)
         val expectedStatus = v1alpha1.ClusterThrottle.Status(
-          throttled = IsResourceThrottled(
-            podsCount = Option(true)
+          throttled = IsResourceAmountThrottled(
+            resourceCounts = Option(
+              IsResourceCountThrottled(
+                pod = Option(true)
+              )),
           ),
           used = ResourceAmount(
-            podsCount = Option(1)
+            resourceCounts = Option(
+              ResourceCount(
+                pod = Option(1)
+              )),
           )
         )
 
@@ -466,7 +519,10 @@ class ClusterThrottleControllerLogicSpec
               throttlerName = "kube-throttler",
               selector = LabelSelector(IsEqualRequirement("key", "value")),
               threshold = ResourceAmount(
-                podsCount = Option(2)
+                resourceCounts = Option(
+                  ResourceCount(
+                    pod = Option(2)
+                  )),
               )
             )
           )
@@ -475,11 +531,17 @@ class ClusterThrottleControllerLogicSpec
         val pods             = Set(pod)
         val clusterthrottles = Set(clusterthrottle)
         val expectedStatus = v1alpha1.ClusterThrottle.Status(
-          throttled = IsResourceThrottled(
-            podsCount = Option(false)
+          throttled = IsResourceAmountThrottled(
+            resourceCounts = Option(
+              IsResourceCountThrottled(
+                pod = Option(false)
+              )),
           ),
           used = ResourceAmount(
-            podsCount = Option(1)
+            resourceCounts = Option(
+              ResourceCount(
+                pod = Option(1)
+              )),
           )
         )
 

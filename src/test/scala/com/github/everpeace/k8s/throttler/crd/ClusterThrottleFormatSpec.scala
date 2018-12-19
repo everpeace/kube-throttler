@@ -17,7 +17,12 @@
 package com.github.everpeace.k8s.throttler.crd
 
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
-import com.github.everpeace.k8s.throttler.crd.v1alpha1.{IsResourceThrottled, ResourceAmount}
+import com.github.everpeace.k8s.throttler.crd.v1alpha1.{
+  IsResourceAmountThrottled,
+  IsResourceCountThrottled,
+  ResourceAmount,
+  ResourceCount
+}
 import org.scalatest.{FreeSpec, Matchers}
 import play.api.libs.json._
 import skuber.LabelSelector
@@ -43,7 +48,9 @@ class ClusterThrottleFormatSpec extends FreeSpec with Matchers {
            |      }
            |    },
            |    "threshold": {
-           |      "podsCount": 10,
+           |      "resourceCounts": {
+           |        "pod": 10
+           |      },
            |      "resourceRequests": {
            |        "cpu": "10",
            |        "memory": "15Gi",
@@ -53,7 +60,9 @@ class ClusterThrottleFormatSpec extends FreeSpec with Matchers {
            |  },
            |  "status": {
            |    "throttled": {
-           |      "podsCount": false,
+           |      "resourceCounts": {
+           |        "pod": false
+           |      },
            |      "resourceRequests": {
            |        "cpu": true,
            |        "memory": false,
@@ -61,7 +70,9 @@ class ClusterThrottleFormatSpec extends FreeSpec with Matchers {
            |      }
            |    },
            |    "used": {
-           |      "podsCount": 5,
+           |      "resourceCounts": {
+           |        "pod": 5
+           |      },
            |      "resourceRequests": {
            |        "cpu": "12",
            |        "memory": "12Gi",
@@ -78,27 +89,40 @@ class ClusterThrottleFormatSpec extends FreeSpec with Matchers {
           spec = v1alpha1.ClusterThrottle.Spec(
             throttlerName = "kube-throttler",
             selector = LabelSelector(IsEqualRequirement("key", "value")),
-            threshold = ResourceAmount(podsCount = Option(10),
-                                       resourceRequests = Map(
-                                         "cpu"            -> Quantity("10"),
-                                         "memory"         -> Quantity("15Gi"),
-                                         "nvidia.com/gpu" -> Quantity("10")
-                                       ))
+            threshold = ResourceAmount(
+              resourceCounts = Option(
+                ResourceCount(
+                  pod = Option(10)
+                )),
+              resourceRequests = Map(
+                "cpu"            -> Quantity("10"),
+                "memory"         -> Quantity("15Gi"),
+                "nvidia.com/gpu" -> Quantity("10")
+              )
+            )
           )
         )
         .withStatus(v1alpha1.ClusterThrottle.Status(
-          throttled = IsResourceThrottled(podsCount = Option(false),
-                                          resourceRequests = Map(
-                                            "cpu"            -> true,
-                                            "memory"         -> false,
-                                            "nvidia.com/gpu" -> true
-                                          )),
-          used = ResourceAmount(podsCount = Option(5),
-                                resourceRequests = Map(
-                                  "cpu"            -> Quantity("12"),
-                                  "memory"         -> Quantity("12Gi"),
-                                  "nvidia.com/gpu" -> Quantity("12")
-                                ))
+          throttled = IsResourceAmountThrottled(
+            resourceCounts = Option(IsResourceCountThrottled(
+              pod = Option(false)
+            )),
+            resourceRequests = Map(
+              "cpu"            -> true,
+              "memory"         -> false,
+              "nvidia.com/gpu" -> true
+            )
+          ),
+          used = ResourceAmount(
+            resourceCounts = Option(ResourceCount(
+              pod = Option(5)
+            )),
+            resourceRequests = Map(
+              "cpu"            -> Quantity("12"),
+              "memory"         -> Quantity("12Gi"),
+              "nvidia.com/gpu" -> Quantity("12")
+            )
+          )
         ))
 
       json.validate[v1alpha1.ClusterThrottle].get shouldBe obj
