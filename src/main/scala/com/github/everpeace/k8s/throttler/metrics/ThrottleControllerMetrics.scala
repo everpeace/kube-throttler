@@ -149,7 +149,7 @@ trait ThrottleControllerMetrics extends MetricsBase {
       "uuid"      -> throttle.metadata.uid
     ).toMap ++ throttle.metadata.clusterName.map(cn => Map("cluster" -> cn)).getOrElse(Map.empty)
 
-    metadata ++ throttle.metadata.labels ++ throttle.metadata.annotations
+    sanitizeTagKeys(metadata ++ throttle.metadata.labels)
   }
 
 }

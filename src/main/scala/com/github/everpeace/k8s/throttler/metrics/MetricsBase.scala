@@ -24,6 +24,13 @@ trait MetricsBase {
     case _ => q._2.amount.toLong
   }
 
+  // prometheus restricts label name characters
+  // ref: https://prometheus.io/docs/concepts/data_model/#metric-names-and-labels
+  def sanitizeTagKeys(tag: kamon.Tags): kamon.Tags = tag.map {
+    case (k, v) =>
+      k.replaceAll("[^a-zA-z_]", "_").replaceAll("^[^a-zA-Z]", "X") -> v
+  }
+
   def resourceQuantityToTag(q: (String, _)): kamon.Tags   = Map("resource" -> q._1)
   def resourceCountsTag(resourceName: String): kamon.Tags = Map("resource" -> resourceName)
 }
