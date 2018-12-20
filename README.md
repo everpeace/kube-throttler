@@ -321,6 +321,11 @@ Apache License 2.0
 
 # Change Logs
 
+## `0.3.1`
+- Changed
+  - sanitize invalid characters in metrics labels
+  - remove `metadata.annotations` from metrics labels
+ 
 ## `0.3.0`
 - Added
   - `resourceCounts.pod` in `Throttle`/`ClusterThrottle` so that user can throttle count of `running` pod.
