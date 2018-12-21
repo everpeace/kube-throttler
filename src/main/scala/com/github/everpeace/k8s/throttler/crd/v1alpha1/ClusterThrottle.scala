@@ -19,7 +19,7 @@ package com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
-import skuber.Resource.Quantity
+import com.github.everpeace.util.Injection._
 import skuber.ResourceSpecification.Subresources
 import skuber.apiextensions.CustomResourceDefinition
 import skuber.{
@@ -56,77 +56,34 @@ object ClusterThrottle {
       Json.format[v1alpha1.ClusterThrottle.Status]
   }
 
-  trait Syntax {
-    import cats.implicits._
+  trait Syntax extends CommonSyntax {
     import com.github.everpeace.k8s._
 
     implicit class ClusterThrottleSpecSyntax(spec: Spec) {
-      def statusFor(used: ResourceAmount): Status = {
-        val throttled = v1alpha1.IsResourceAmountThrottled(
-          resourceCounts = for {
-            rc <- spec.threshold.resourceCounts
-            th <- rc.pod
-            c  <- used.resourceCounts.flatMap(_.pod).orElse(Option(0))
-          } yield IsResourceCountThrottled(pod = Option(th <= c)),
-          resourceRequests = spec.threshold.resourceRequests.keys.map { resource =>
-            if (used.resourceRequests.contains(resource)) {
-              if (used.resourceRequests(resource) < spec.threshold.resourceRequests(resource)) {
-                resource -> false
-              } else {
-                resource -> true
-              }
-            } else {
-              resource -> false
-            }
-          }.toMap
-        )
-
-        Status(
-          throttled = throttled,
-          used = used
-        )
-      }
+      def statusFor(used: ResourceAmount): Status = Status(
+        throttled = used.isThrottledFor(spec.threshold, isThrottledOnEqual = true),
+        used = used.filterEffectiveOn(spec.threshold)
+      )
     }
 
-    implicit class ClusterThrottleSyntax(throttle: ClusterThrottle) {
-      def isActiveFor(pod: Pod): Boolean = {
-        lazy val isTarget = throttle.spec.selector.matches(pod.metadata.labels)
-        lazy val isActive = throttle.status.exists { st =>
-          lazy val isPodCountActive = st.throttled.resourceCounts.flatMap(_.pod).exists(identity)
-          lazy val isResourceActive = pod.totalRequests.keys
-            .map(rs => st.throttled.resourceRequests.getOrElse(rs, false))
-            .exists(identity)
-          isPodCountActive || isResourceActive
-        }
-        isTarget && isActive
+    implicit class ClusterThrottleSyntax(clthrottle: ClusterThrottle) {
+      def isTarget(pod: Pod): Boolean = clthrottle.spec.selector.matches(pod.metadata.labels)
+
+      def isAlreadyActiveFor(pod: Pod): Boolean = isTarget(pod) && {
+        (for {
+          st        <- clthrottle.status
+          throttled = st.throttled
+        } yield throttled.isAlreadyThrottled(pod)).getOrElse(false)
       }
 
-      def isInsufficientFor(pod: Pod): Boolean = {
-        throttle.spec.selector.matches(pod.metadata.labels) && {
-          val podTotalRequests = pod.totalRequests
-          val threshold        = throttle.spec.threshold
-          val used =
-            throttle.status.map(_.used).getOrElse(v1alpha1.ResourceAmount(None, Map.empty))
-
-          lazy val podsCountInsufficient = (for {
-            rc <- threshold.resourceCounts
-            th <- rc.pod
-            u  <- used.resourceCounts.flatMap(_.pod).orElse(Option(0))
-          } yield th < (u + 1)).getOrElse(false)
-
-          lazy val someResourceInsufficient = for {
-            (r, q) <- podTotalRequests.toList
-          } yield {
-            if (threshold.resourceRequests.contains(r)) {
-              val uq = used.resourceRequests.getOrElse(r, Quantity("0"))
-              (threshold.resourceRequests(r) compare (uq add q)) < 0
-            } else {
-              false
-            }
-          }
-
-          podsCountInsufficient || someResourceInsufficient.exists(identity)
-        }
+      def isInsufficientFor(pod: Pod): Boolean = isTarget(pod) && {
+        val podResourceAmount = pod.==>[ResourceAmount]
+        val used              = clthrottle.status.map(_.used).getOrElse(zeroResourceAmount)
+        val isThrottled =
+          (podResourceAmount add used).isThrottledFor(clthrottle.spec.threshold,
+                                                      isThrottledOnEqual = false)
+        isThrottled.resourceCounts.flatMap(_.pod).getOrElse(false) || isThrottled.resourceRequests
+          .exists(_._2)
       }
     }
   }

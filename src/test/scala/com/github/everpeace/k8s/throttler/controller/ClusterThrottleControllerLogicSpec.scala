@@ -59,7 +59,7 @@ class ClusterThrottleControllerLogicSpec
   )
 
   "ClusterThrottleControllerLogic" - {
-    "isClusterThrottleActiveFor" - {
+    "isClusterThrottleAlreadyActiveFor" - {
       "should evaluate active when the clusterthrottle's status for some of the 'requests' resource of pod are active" in {
         val clthrottle = v1alpha1
           .ClusterThrottle(
@@ -86,22 +86,22 @@ class ClusterThrottleControllerLogicSpec
         val podRequestsR = mkPod(List(resourceRequirements(Map("r" -> Quantity("1"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleActiveFor(podRequestsR, clthrottle) shouldBe true
+        isClusterThrottleAlreadyActiveFor(podRequestsR, clthrottle) shouldBe true
 
         val podRequestsS = mkPod(List(resourceRequirements(Map("s" -> Quantity("3"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleActiveFor(podRequestsS, clthrottle) shouldBe false
+        isClusterThrottleAlreadyActiveFor(podRequestsS, clthrottle) shouldBe false
 
         val podRequestsT = mkPod(List(resourceRequirements(Map("t" -> Quantity("3"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleActiveFor(podRequestsT, clthrottle) shouldBe false
+        isClusterThrottleAlreadyActiveFor(podRequestsT, clthrottle) shouldBe false
 
         val podNoLabel = mkPod(List(resourceRequirements(Map("s" -> Quantity("3"))))).copy(
           metadata = commonMeta.copy(labels = Map.empty),
         )
-        isClusterThrottleActiveFor(podNoLabel, clthrottle) shouldBe false
+        isClusterThrottleAlreadyActiveFor(podNoLabel, clthrottle) shouldBe false
       }
 
       "should evaluate active when the clusterthrottle's status.podCounts is active" in {
@@ -141,12 +141,12 @@ class ClusterThrottleControllerLogicSpec
         val podRequestsR = mkPod(List(resourceRequirements(Map("r" -> Quantity("1"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleActiveFor(podRequestsR, clusterthrottle) shouldBe true
+        isClusterThrottleAlreadyActiveFor(podRequestsR, clusterthrottle) shouldBe true
 
         val podNoLabel = mkPod(List(resourceRequirements(Map("s" -> Quantity("3"))))).copy(
           metadata = commonMeta.copy(labels = Map.empty),
         )
-        isClusterThrottleActiveFor(podNoLabel, clusterthrottle) shouldBe false
+        isClusterThrottleAlreadyActiveFor(podNoLabel, clusterthrottle) shouldBe false
       }
     }
     "isClusterThrottleInsufficientFor" - {

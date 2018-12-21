@@ -426,14 +426,16 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
   def requestHandler: Receive = {
     case CheckThrottleRequest(pod) =>
       val throttlesInNs   = cache.throttles.toImmutable.getOrElse(pod.namespace, Set.empty)
-      val activeThrottles = throttlesInNs.filter(isThrottleActiveFor(pod, _))
+      val activeThrottles = throttlesInNs.filter(isThrottleAlreadyActiveFor(pod, _))
       val insufficientThrottles =
-        throttlesInNs.filter(t => !isThrottleActiveFor(pod, t) && isThrottleInsufficientFor(pod, t))
+        throttlesInNs.filter(t =>
+          !isThrottleAlreadyActiveFor(pod, t) && isThrottleInsufficientFor(pod, t))
 
-      val clusterThrottles       = cache.clusterThrottles.toImmutable.values.fold(Set.empty)(_ ++ _)
-      val activeClusterThrottles = clusterThrottles.filter(isClusterThrottleActiveFor(pod, _))
+      val clusterThrottles = cache.clusterThrottles.toImmutable.values.fold(Set.empty)(_ ++ _)
+      val activeClusterThrottles =
+        clusterThrottles.filter(isClusterThrottleAlreadyActiveFor(pod, _))
       val insufficientClusterThrottles = clusterThrottles.filter(t =>
-        !isClusterThrottleActiveFor(pod, t) && isClusterThrottleInsufficientFor(pod, t))
+        !isClusterThrottleAlreadyActiveFor(pod, t) && isClusterThrottleInsufficientFor(pod, t))
 
       val isThrottled = activeThrottles.nonEmpty || activeClusterThrottles.nonEmpty || insufficientThrottles.nonEmpty || insufficientClusterThrottles.nonEmpty
       if (isThrottled) {

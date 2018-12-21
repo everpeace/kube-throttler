@@ -18,14 +18,15 @@ package com.github.everpeace.k8s.throttler.controller
 import com.github.everpeace.k8s._
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
-import com.github.everpeace.k8s.throttler.crd.v1alpha1.ResourceCount
-import skuber.Resource.ResourceList
+import com.github.everpeace.k8s.throttler.crd.v1alpha1.ResourceAmount
+import com.github.everpeace.util.Injection._
 import skuber._
+import cats.instances.list._
 
 trait ClusterThrottleControllerLogic {
 
-  def isClusterThrottleActiveFor(pod: Pod, clthrottle: v1alpha1.ClusterThrottle): Boolean =
-    clthrottle.isActiveFor(pod)
+  def isClusterThrottleAlreadyActiveFor(pod: Pod, clthrottle: v1alpha1.ClusterThrottle): Boolean =
+    clthrottle.isAlreadyActiveFor(pod)
   def isClusterThrottleInsufficientFor(pod: Pod, clthrottle: v1alpha1.ClusterThrottle): Boolean =
     clthrottle.isInsufficientFor(pod)
   def calcNextClusterThrottleStatuses(
@@ -38,22 +39,11 @@ trait ClusterThrottleControllerLogic {
 
       matchedPods = podsInAllNamespaces.filter(p =>
         clthrottle.spec.selector.matches(p.metadata.labels))
-      running = matchedPods.filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
-      usedResource = v1alpha1.ResourceAmount(
-        resourceCounts = for {
-          rc <- clthrottle.spec.threshold.resourceCounts
-          _  <- rc.pod
-        } yield ResourceCount(pod = Option(running.size)),
-        resourceRequests = {
-          val actual =
-            running.toList.map(_.totalRequests).foldLeft(Map.empty: ResourceList)(_ add _)
-          val ret = for {
-            (r, _) <- clthrottle.spec.threshold.resourceRequests if actual.contains(r)
-          } yield r -> actual(r)
-          ret
-        }
-      )
-      nextStatus = clthrottle.spec.statusFor(usedResource)
+      runningPods = matchedPods
+        .filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
+        .toList
+      runningTotal = runningPods.==>[List[ResourceAmount]].foldLeft(zeroResourceAmount)(_ add _)
+      nextStatus   = clthrottle.spec.statusFor(runningTotal)
 
       toUpdate <- if (clthrottle.status != Option(nextStatus)) {
                    List(clthrottle.key -> nextStatus)

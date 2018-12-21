@@ -16,6 +16,7 @@
 
 package com.github.everpeace
 
+import com.github.everpeace.util.Injection.==>
 import skuber.LabelSelector._
 import skuber.Resource.{Quantity, ResourceList}
 import skuber.{LabelSelector, ObjectResource, Pod}
@@ -23,6 +24,11 @@ import skuber.{LabelSelector, ObjectResource, Pod}
 package object k8s {
 
   type ObjectKey = (String, String)
+
+  // TODO: change explicit convertion(__.key) to context aware conversion(__.==>)
+  implicit val or2key: ObjectResource ==> ObjectKey = new ==>[ObjectResource, ObjectKey] {
+    override def to: ObjectResource => ObjectKey = o => o.namespace -> o.name
+  }
 
   implicit class ObjectKeyExtractor(o: ObjectResource) {
     def key: ObjectKey = o.namespace -> o.name
@@ -56,6 +62,7 @@ package object k8s {
     }
   }
 
+  val zeroResourceList = Map.empty[String, Quantity]
   implicit class ResourceListAddtion(ra: ResourceList) {
     def add(rb: ResourceList): ResourceList = (ra.toList ++ rb.toList).groupBy(_._1).map {
       case (k, vs) =>

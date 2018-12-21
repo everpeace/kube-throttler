@@ -16,8 +16,13 @@
 
 package com.github.everpeace.k8s.throttler.crd
 
+import cats.syntax.order._
+import com.github.everpeace.k8s._
+import com.github.everpeace.util.Injection.{==>, _}
+import com.github.everpeace.util.Isomorphism.<=>
 import skuber.Resource.ResourceList
-import skuber.{CustomResource, ListResource}
+import skuber.{CustomResource, ListResource, Pod}
+import skuber.json.format._
 
 package object v1alpha1 {
   type Throttle     = CustomResource[v1alpha1.Throttle.Spec, v1alpha1.Throttle.Status]
@@ -41,7 +46,6 @@ package object v1alpha1 {
 
   trait CommonJsonFormat {
     import play.api.libs.json._
-    import skuber.json.format._
 
     implicit val resourceCountsFmt: Format[v1alpha1.ResourceCount] =
       Json.format[v1alpha1.ResourceCount]
@@ -56,9 +60,102 @@ package object v1alpha1 {
       Json.format[v1alpha1.IsResourceAmountThrottled]
   }
 
+  trait CommonSyntax {
+    implicit val podCanBeResourceAmount: Pod ==> ResourceAmount = new ==>[Pod, ResourceAmount] {
+      override def to: Pod => ResourceAmount =
+        pod =>
+          ResourceAmount(
+            resourceCounts = Option(ResourceCount(pod = Option(1))),
+            resourceRequests = pod.totalRequests
+        )
+    }
+
+    implicit class IsResourceAmountThrottledSyntax(throttled: IsResourceAmountThrottled) {
+      def isAlreadyThrottled(pod: Pod): Boolean = {
+        val podAmount           = pod.==>[ResourceAmount]
+        val isPodCountThrottled = throttled.resourceCounts.flatMap(_.pod).getOrElse(false)
+        val isSomePodRequestedResourceThrottled = throttled.resourceRequests
+          .filterKeys(key => podAmount.resourceRequests.contains(key))
+          .exists(_._2)
+        isPodCountThrottled || isSomePodRequestedResourceThrottled
+      }
+    }
+
+    implicit class ResourceAmountSyntax(ra: ResourceAmount) {
+      def isThrottledFor(
+          threshold: ResourceAmount,
+          isThrottledOnEqual: Boolean = true
+        ): IsResourceAmountThrottled = {
+        val used = ra
+        v1alpha1.IsResourceAmountThrottled(
+          resourceCounts = for {
+            rc <- threshold.resourceCounts
+            th <- rc.pod
+            c  <- used.resourceCounts.flatMap(_.pod).orElse(Option(0))
+          } yield
+            IsResourceCountThrottled(
+              pod = Option(
+                if (isThrottledOnEqual) th <= c else th < c
+              )),
+          resourceRequests = threshold.resourceRequests.keys.map { resource =>
+            if (used.resourceRequests.contains(resource)) {
+              resource -> (if (isThrottledOnEqual) {
+                             threshold.resourceRequests(resource) <= used.resourceRequests(resource)
+                           } else {
+                             threshold.resourceRequests(resource) < used.resourceRequests(resource)
+                           })
+            } else {
+              resource -> false
+            }
+          }.toMap
+        )
+      }
+
+      def filterEffectiveOn(threshold: ResourceAmount): ResourceAmount = {
+        val used = ra
+        v1alpha1.ResourceAmount(
+          resourceCounts = for {
+            rc  <- threshold.resourceCounts
+            urc <- used.resourceCounts
+          } yield {
+            val pc = for {
+              _ <- rc.pod
+              p <- urc.pod
+            } yield p
+            ResourceCount(pod = pc)
+          },
+          resourceRequests = used.resourceRequests.filterKeys(threshold.resourceRequests.contains)
+        )
+      }
+    }
+  }
+
   object Implicits
       extends v1alpha1.Throttle.Implicits
       with v1alpha1.ClusterThrottle.Implicits
       with CommonJsonFormat
+      with CommonSyntax {
+
+    val zeroResourceCount = ResourceCount()
+    implicit class ResourceCountAddition(rc: ResourceCount) {
+      def add(rc2: ResourceCount) = ResourceCount(
+        pod = for {
+          i <- rc.pod.orElse(Option(0))
+          j <- rc2.pod
+        } yield i + j
+      )
+    }
+
+    val zeroResourceAmount = ResourceAmount()
+    implicit class ResourceAmountAddition(ra: ResourceAmount) {
+      def add(ra2: ResourceAmount) = ResourceAmount(
+        resourceCounts = for {
+          a <- ra.resourceCounts.orElse(Option(zeroResourceCount))
+          b <- ra2.resourceCounts
+        } yield a add b,
+        resourceRequests = ra.resourceRequests add ra2.resourceRequests
+      )
+    }
+  }
 
 }
