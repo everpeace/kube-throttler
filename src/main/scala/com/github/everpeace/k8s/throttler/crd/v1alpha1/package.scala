@@ -19,7 +19,6 @@ package com.github.everpeace.k8s.throttler.crd
 import cats.syntax.order._
 import com.github.everpeace.k8s._
 import com.github.everpeace.util.Injection.{==>, _}
-import com.github.everpeace.util.Isomorphism.<=>
 import skuber.Resource.ResourceList
 import skuber.{CustomResource, ListResource, Pod}
 

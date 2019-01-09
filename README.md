@@ -159,7 +159,8 @@ status:
     resourceRequests:
       cpu: false
       memory: false
-  used: {}
+  used: 
+    resourceRequests: {}
 ```
 
 Then, create a pods with label `throttle=t1` and `requests` `cpu=300m`.
@@ -278,7 +279,7 @@ $ kubectl create -f example/pod3.yaml
 $ kubectl get po pod3
 NAME   READY   STATUS    RESTARTS   AGE
 pod3   0/1     Pending   0          5s
-$ kubectl describe pod3
+$ kubectl describe pod pod3
 ...
 Events:
   Type     Reason            Age               From          Message
