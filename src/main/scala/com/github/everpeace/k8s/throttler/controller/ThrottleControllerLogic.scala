@@ -18,13 +18,14 @@ package com.github.everpeace.k8s.throttler.controller
 import com.github.everpeace.k8s._
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
-import com.github.everpeace.k8s.throttler.crd.v1alpha1.ResourceCount
-import skuber.Resource.ResourceList
+import com.github.everpeace.k8s.throttler.crd.v1alpha1.ResourceAmount
+import com.github.everpeace.util.Injection._
 import skuber._
+import cats.instances.list._
 
 trait ThrottleControllerLogic {
-  def isThrottleActiveFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean =
-    throttle.isActiveFor(pod)
+  def isThrottleAlreadyActiveFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean =
+    throttle.isAlreadyActiveFor(pod)
 
   def isThrottleInsufficientFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean =
     throttle.isInsufficientFor(pod)
@@ -38,22 +39,11 @@ trait ThrottleControllerLogic {
       throttle <- targetThrottles.toList
 
       matchedPods = podsInNs.filter(p => throttle.spec.selector.matches(p.metadata.labels))
-      running     = matchedPods.filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
-      usedResource = v1alpha1.ResourceAmount(
-        resourceCounts = for {
-          rc <- throttle.spec.threshold.resourceCounts
-          _  <- rc.pod
-        } yield ResourceCount(pod = Option(running.size)),
-        resourceRequests = {
-          val actual =
-            running.toList.map(_.totalRequests).foldLeft(Map.empty: ResourceList)(_ add _)
-          val ret = for {
-            (r, _) <- throttle.spec.threshold.resourceRequests if actual.contains(r)
-          } yield r -> actual(r)
-          ret
-        }
-      )
-      nextStatus = throttle.spec.statusFor(usedResource)
+      runningPods = matchedPods
+        .filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
+        .toList
+      runningTotal = runningPods.==>[List[ResourceAmount]].foldLeft(zeroResourceAmount)(_ add _)
+      nextStatus   = throttle.spec.statusFor(runningTotal)
 
       toUpdate <- if (throttle.status != Option(nextStatus)) {
                    List(throttle.key -> nextStatus)

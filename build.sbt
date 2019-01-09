@@ -7,7 +7,7 @@ lazy val root = (project in file("."))
     inThisBuild(
       List(
         organization := "com.github.everpeace",
-        scalaVersion := "2.12.6"
+        scalaVersion := "2.12.8"
       )),
     // run options
     fork in run := true,
@@ -24,6 +24,7 @@ lazy val root = (project in file("."))
       "-encoding",
       "UTF-8",
       "-Ywarn-unused-import",
+//      "-Xlog-implicits",
       "-Ypartial-unification"
     ),
     //
