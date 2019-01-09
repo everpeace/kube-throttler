@@ -22,7 +22,6 @@ import com.github.everpeace.util.Injection.{==>, _}
 import com.github.everpeace.util.Isomorphism.<=>
 import skuber.Resource.ResourceList
 import skuber.{CustomResource, ListResource, Pod}
-import skuber.json.format._
 
 package object v1alpha1 {
   type Throttle     = CustomResource[v1alpha1.Throttle.Spec, v1alpha1.Throttle.Status]
@@ -46,6 +45,7 @@ package object v1alpha1 {
 
   trait CommonJsonFormat {
     import play.api.libs.json._
+    import skuber.json.format.quantityFormat
 
     implicit val resourceCountsFmt: Format[v1alpha1.ResourceCount] =
       Json.format[v1alpha1.ResourceCount]

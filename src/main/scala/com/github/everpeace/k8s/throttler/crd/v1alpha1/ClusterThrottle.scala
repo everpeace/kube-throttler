@@ -44,7 +44,7 @@ object ClusterThrottle {
   trait JsonFormats extends CommonJsonFormat {
     import play.api.libs.functional.syntax._
     import play.api.libs.json._
-    import skuber.json.format._
+    import skuber.json.format.{maybeEmptyFormatMethods, jsPath2LabelSelFormat}
 
     implicit val clusterThrottleSpecFmt: Format[v1alpha1.ClusterThrottle.Spec] = (
       (JsPath \ "throttlerName").formatMaybeEmptyString(true) and

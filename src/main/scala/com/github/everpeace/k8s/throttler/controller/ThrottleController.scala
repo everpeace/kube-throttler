@@ -30,10 +30,10 @@ import com.github.everpeace.k8s.throttler.metrics.{
   ClusterThrottleControllerMetrics,
   ThrottleControllerMetrics
 }
-import play.api.libs.json.Format
+import play.api.libs.json._
 import skuber.ResourceSpecification.Subresources
 import skuber.api.client.EventType
-import skuber.json.format._
+import skuber.json.format.{podFormat => _, ListResourceFormat}
 import skuber.{ResourceSpecification, _}
 
 import scala.collection.mutable
@@ -77,9 +77,14 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
     val syncThrottleAndPods = for {
       clthrottleVersion <- cache.clusterThrottles.init
       throttleVersion   <- cache.throttles.init
-      podVersion        <- cache.pods.init
-      _                 <- reconcileAllClusterThrottles()
-      _                 <- reconcileAllThrottles()
+      podVersion <- cache.pods.init(k8s,
+                                    ec,
+                                    Skuber2_0_12_Fix.fixedPodFormat,
+                                    Pod.poDef,
+                                    ListResourceFormat[Pod](Skuber2_0_12_Fix.fixedPodFormat),
+                                    Pod.poListDef)
+      _ <- reconcileAllClusterThrottles()
+      _ <- reconcileAllThrottles()
     } yield (clthrottleVersion, throttleVersion, podVersion)
 
     syncThrottleAndPods.onComplete {
@@ -123,7 +128,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
           sinceResourceVersion = podVersion,
           bufSize = config.watchBufferSize
         )(
-          implicitly[Format[Pod]],
+          Skuber2_0_12_Fix.fixedPodFormat,
           clusterScopedResourceDefinition[Pod]
         )
         .map(PodWatchEvent)
