@@ -322,6 +322,12 @@ Apache License 2.0
 
 # Change Logs
 
+## `0.3.2`
+- Changed
+  - large refactoring #4 (moving throttle logic to model package from controller package)
+  - skip un-marshalling `matchFields` field in `NodeSelectorTerm`.
+    - the attribute has been supported since kubernetes `v1.11`.
+
 ## `0.3.1`
 - Changed
   - sanitize invalid characters in metrics labels
