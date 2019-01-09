@@ -45,7 +45,7 @@ object Throttle {
   trait JsonFormat extends CommonJsonFormat {
     import play.api.libs.functional.syntax._
     import play.api.libs.json._
-    import skuber.json.format._
+    import skuber.json.format.{maybeEmptyFormatMethods, jsPath2LabelSelFormat}
 
     implicit val throttleSpecFmt: Format[v1alpha1.Throttle.Spec] = (
       (JsPath \ "throttlerName").formatMaybeEmptyString(true) and

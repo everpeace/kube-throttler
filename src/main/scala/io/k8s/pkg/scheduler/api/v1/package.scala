@@ -18,7 +18,7 @@ package io.k8s.pkg.scheduler.api
 
 import play.api.libs.functional.syntax._
 import play.api.libs.json._
-import skuber.json.format._
+import skuber.json.format.{podSpecFmt => _, _}
 import skuber.{ListMeta, ListResource, Node, NodeList, ObjectMeta, Pod}
 
 // ref: https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/api/v1/types.go
@@ -33,12 +33,12 @@ package object v1 {
       error: Option[String] = None)
 
   object Implicits {
-
+    import com.github.everpeace.k8s.Skuber2_0_12_Fix
     // kube-scheduler doesn't send 'apiVersion' and 'kind' attributes
     // on Pod, Node, NodeList
     implicit val podFormat: Format[Pod] = (
       (JsPath \ "metadata").lazyFormat[ObjectMeta](objectMetaFormat) and
-        (JsPath \ "spec").formatNullable[Pod.Spec] and
+        (JsPath \ "spec").formatNullable[Pod.Spec](Skuber2_0_12_Fix.fixedPodSpecFormat) and
         (JsPath \ "status").formatNullable[Pod.Status]
     )(
       Pod("Pod", "v1", _, _, _),
