@@ -38,7 +38,7 @@ trait ThrottleControllerLogic {
     for {
       throttle <- targetThrottles.toList
 
-      matchedPods = podsInNs.filter(p => throttle.spec.selector.matches(p.metadata.labels))
+      matchedPods = podsInNs.filter(pod => throttle.spec.selector.matches(pod))
       runningPods = matchedPods
         .filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
         .toList

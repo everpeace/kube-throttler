@@ -5,8 +5,10 @@ metadata:
 spec:
   throttlerName: kube-throttler
   selector:
-    matchLabels:
-      throttle: t1
+    selectorTerms:
+    - podSelector:
+        matchLabels:
+          throttle: t1
   threshold:
     resourceCounts:
       pod: 5

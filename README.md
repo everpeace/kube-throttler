@@ -87,10 +87,14 @@ metadata:
 spec:
   # throttler name which responsible for this Throttle custom resource
   throttlerName: kube-throttler
-  # you can write any label selector freely 
+  # you can write any label selector freely
+  # items under selecterTerms are evaluated OR-ed
+  # each selecterTerm item are evaluated AND-ed 
   selector:
-    matchLabels:
-      throttle: t1
+    selecterTerms:
+    - podSelector:
+        matchLabels:
+          throttle: t1
   # you can set a threshold of the throttle
   threshold:
     # limiting total count of resources
@@ -144,8 +148,10 @@ $ kubectl get throttle t1 -o yaml
 spec:
   throttlerName: kube-throttler
   selector:
-    matchLabels:
-      throttle: t1
+    selecterTerms:
+    - podSelector:
+        matchLabels:
+          throttle: t1
   threshold:
     resourceCounts:
       pod: 5
@@ -249,8 +255,10 @@ $ kubectl get throttle t1 -o yaml
 ...
 spec:
   selector:
-    matchLabels:
-      throttle: t1
+    selecterTerms:
+    - podSelector:
+        matchLabels:
+          throttle: t1
   threshold:
     resourceCounts:
       pod: 5

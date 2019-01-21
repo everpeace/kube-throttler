@@ -30,6 +30,16 @@ spec:
           properties:
             selector:
               type: object
+              required:
+                - selectorTerms
+              properties:
+                selectorTerms:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      podSelector:
+                        type: object
             threshold:
               type: object
               properties:
@@ -73,6 +83,18 @@ spec:
           properties:
             selector:
               type: object
+              required:
+              - selectorTerms
+              properties:
+                selectorTerms:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      namespaceSelector:
+                        type: object
+                      podSelector:
+                        type: object
             threshold:
               type: object
               properties:

@@ -10,7 +10,7 @@ metadata:
   name: kube-throttler
 rules:
 - apiGroups: [""]
-  resources: ["pods"]
+  resources: ["pods", "namespaces"]
   verbs: ["get","list","watch"]
 - apiGroups: ["schedule.k8s.everpeace.github.com"]
   resources: ["clusterthrottles"]

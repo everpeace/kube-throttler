@@ -34,7 +34,9 @@ import com.github.everpeace.k8s._
 
 object Throttle {
 
-  case class Spec(throttlerName: String, selector: LabelSelector, threshold: ResourceAmount)
+  case class Spec(throttlerName: String, selector: Selector, threshold: ResourceAmount)
+  case class Selector(selectorTerms: List[SelectorItem])
+  case class SelectorItem(podSelector: LabelSelector)
 
   case class Status(throttled: IsResourceAmountThrottled, used: ResourceAmount)
 
@@ -47,9 +49,18 @@ object Throttle {
     import play.api.libs.json._
     import skuber.json.format.{maybeEmptyFormatMethods, jsPath2LabelSelFormat}
 
+    implicit val throttleSelectorItemFmt: Format[v1alpha1.Throttle.SelectorItem] =
+      (JsPath \ "podSelector").formatLabelSelector
+        .inmap(v1alpha1.Throttle.SelectorItem.apply, unlift(v1alpha1.Throttle.SelectorItem.unapply))
+
+    implicit val throttleSelectorFmt: Format[v1alpha1.Throttle.Selector] =
+      (JsPath \ "selectorTerms")
+        .formatMaybeEmptyList[v1alpha1.Throttle.SelectorItem]
+        .inmap(v1alpha1.Throttle.Selector.apply, unlift(v1alpha1.Throttle.Selector.unapply))
+
     implicit val throttleSpecFmt: Format[v1alpha1.Throttle.Spec] = (
       (JsPath \ "throttlerName").formatMaybeEmptyString(true) and
-        (JsPath \ "selector").formatLabelSelector and
+        (JsPath \ "selector").format[v1alpha1.Throttle.Selector] and
         (JsPath \ "threshold").format[ResourceAmount]
     )(v1alpha1.Throttle.Spec.apply, unlift(v1alpha1.Throttle.Spec.unapply))
 
@@ -58,6 +69,19 @@ object Throttle {
   }
 
   trait Syntax {
+
+    implicit class ThrottleSelectorItemSyntax(selectorItem: SelectorItem) {
+      def matches(pod: skuber.Pod): Boolean = {
+        selectorItem.podSelector.matches(pod.metadata.labels)
+      }
+    }
+
+    implicit class ThrottleSelectorSyntax(selector: Selector) {
+      def matches(pod: skuber.Pod): Boolean = {
+        selector.selectorTerms.exists(_.matches(pod))
+      }
+    }
+
     implicit class ThrottleSpecSyntax(spec: Spec) {
       def statusFor(used: ResourceAmount): Status = v1alpha1.Throttle.Status(
         throttled = used.isThrottledFor(spec.threshold, isThrottledOnEqual = true),
@@ -66,7 +90,7 @@ object Throttle {
     }
 
     implicit class ThrottleSyntax(throttle: Throttle) {
-      def isTarget(pod: Pod): Boolean = throttle.spec.selector.matches(pod.metadata.labels)
+      def isTarget(pod: Pod): Boolean = throttle.spec.selector.matches(pod)
 
       def isAlreadyActiveFor(pod: Pod): Boolean = isTarget(pod) && {
         (for {

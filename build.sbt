@@ -87,7 +87,7 @@ lazy val root = (project in file("."))
     dockerUsername := Some("everpeace"),
     packageName in Docker := "kube-throttler",
     maintainer in Docker := "Shingo Omura <https://github.com/everpeace>",
-    dockerBaseImage := "frolvlad/alpine-oraclejdk8:8.181.13-slim",
+    dockerBaseImage := "adoptopenjdk/openjdk8:x86_64-alpine-jdk8u191-b12",
     dockerExposedPorts := Seq(
       4321 /* kube-throttle (kube-scheduler extender) */,
       5005 /* for jvm debug */,
