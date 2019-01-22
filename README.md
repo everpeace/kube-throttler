@@ -330,6 +330,35 @@ Apache License 2.0
 
 # Change Logs
 
+## `0.4.0`
+
+- Changed
+  - __BREAKING CHANGE__:  change `spec.selector` object schema to support OR-ed multiple label selectors and `namespaceSelector` in clusterthrottles. (#6)
+
+### Migration Notes from `0.3.x` or before
+- stop kube-throttlers (recommend to make `replicas` to 0)
+- dump your all throttle/clusterthrottles `kubectl get clusterthrottles,throttles --all-namespaces`
+- replace `selector.matchLabels` with `selector.selectorTerms[0].podSelecter.matchLabels` in your crs
+    ```yaml
+    # before
+    spec:
+      selector:
+        matchLabels: { some object }
+        matchExpressions: [ some arrays ]
+    
+    # after
+    spec:
+      selector:
+        selectorTerms:
+        - podSelector:
+            matchLabels: { some object }
+            matchExpressions: [ some arrays ]
+    ```
+- delete all throttle/clusterthrottles `kubectl delete clusterthrottles,throttles --all-namespaces --all`
+- update crds and rbacs `kubectl apply -f deploy/0-crd.yaml; kubectl apply -f deploy/2-rbac.yaml`
+- start kube-throttlers (recommend to make `replicas` back to the original value)
+- apply updated throttles/clusterthrottoles crs.
+ 
 ## `0.3.2`
 - Changed
   - large refactoring #4 (moving throttle logic to model package from controller package)
