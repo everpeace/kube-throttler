@@ -33,7 +33,7 @@ import com.github.everpeace.k8s.throttler.metrics.{
 import play.api.libs.json._
 import skuber.ResourceSpecification.Subresources
 import skuber.api.client.EventType
-import skuber.json.format.{podFormat => _, ListResourceFormat}
+import skuber.json.format.{podFormat => _, ListResourceFormat, namespaceFormat}
 import skuber.{ResourceSpecification, _}
 
 import scala.collection.mutable
@@ -51,6 +51,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
   implicit private val system = context.system
   implicit private val mat    = ActorMaterializer()
   implicit private val ec     = context.dispatcher
+  implicit val nslistFmt      = ListResourceFormat[Namespace]
 
   private val k8sMap: mutable.Map[String, K8SRequestContext] = mutable.Map(k8s.namespaceName -> k8s)
 
@@ -64,8 +65,9 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
     config.throttlerName == clthr.spec.throttlerName
 
   private val cache = new {
-    val pods      = new ObjectResourceCache[Pod](isPodResponsible)
-    val throttles = new ObjectResourceCache[v1alpha1.Throttle](isThrottleResponsible)
+    val namespaces = new ObjectResourceCache[Namespace]()
+    val pods       = new ObjectResourceCache[Pod](isPodResponsible)
+    val throttles  = new ObjectResourceCache[v1alpha1.Throttle](isThrottleResponsible)
     val clusterThrottles =
       new ObjectResourceCache[v1alpha1.ClusterThrottle](isClusterThrottleResponsible)
   }
@@ -75,6 +77,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
     log.info("starting ThrottleController actor (path = {})", self.path)
 
     val syncThrottleAndPods = for {
+      namespaceVersion  <- cache.namespaces.init
       clthrottleVersion <- cache.clusterThrottles.init
       throttleVersion   <- cache.throttles.init
       podVersion <- cache.pods.init(k8s,
@@ -85,13 +88,13 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
                                     Pod.poListDef)
       _ <- reconcileAllClusterThrottles()
       _ <- reconcileAllThrottles()
-    } yield (clthrottleVersion, throttleVersion, podVersion)
+    } yield (namespaceVersion, clthrottleVersion, throttleVersion, podVersion)
 
     syncThrottleAndPods.onComplete {
       case scala.util.Success(v) =>
-        val (clthrottleVersion, throttleVersion, podVersion) = v
+        val (namespaceVersion, clthrottleVersion, throttleVersion, podVersion) = v
         log.info(
-          s"latest throttle list resource version = $throttleVersion, latest clusterthrottle list resource version = $clthrottleVersion, latest pod list resource version = $podVersion")
+          s"latest throttle list resource version = $throttleVersion, latest clusterthrottle list resource version = $clthrottleVersion, latest pod list resource version = $podVersion, namespace list resource version = $namespaceVersion")
       case scala.util.Failure(th) =>
         log.error("error in syncing throttles and pods: {}, {}",
                   th,
@@ -101,7 +104,17 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
     }
 
     for {
-      (clthrottleVersion, throttleVersion, podVersion) <- syncThrottleAndPods
+      (namespaceVersion, clthrottleVersion, throttleVersion, podVersion) <- syncThrottleAndPods
+      // watch namespace
+      nsWatch = k8s
+        .watchAllContinuously[Namespace](
+          sinceResourceVersion = namespaceVersion,
+          bufSize = config.watchBufferSize
+        )(
+          implicitly[Format[Namespace]],
+          clusterScopedResourceDefinition[Namespace]
+        )
+        .map(NamespaceWatchEvent)
       // watch clusterthrottle
       clthrottleWatch = k8s
         .watchAllContinuously[v1alpha1.ClusterThrottle](
@@ -135,12 +148,14 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
       // todo: use RestartSource to make the actor more stable.
       done <- {
         val fut = Source
-          .combine(clthrottleWatch, throttleWatch, podWatch)(Merge(_, eagerComplete = true))
+          .combine(nsWatch, clthrottleWatch, throttleWatch, podWatch)(
+            Merge(_, eagerComplete = true))
           .runWith(
             Sink.foreach {
               case event: PodWatchEvent             => self ! event
               case event: ThrottleWatchEvent        => self ! event
               case event: ClusterThrottleWatchEvent => self ! event
+              case event: NamespaceWatchEvent       => self ! event
               case _                                =>
               // drop
             }
@@ -247,9 +262,11 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
 
   private def _calcNextClusterThrottleStatuses(
       targetClusterThrottles: Set[v1alpha1.ClusterThrottle],
-      podsInAllNamespaces: Set[Pod]
+      podsInAllNamespaces: Set[Pod],
+      namespaces: Map[String, Namespace]
     ): List[(ObjectKey, v1alpha1.ClusterThrottle.Status)] = {
-    val nextStatuses = calcNextClusterThrottleStatuses(targetClusterThrottles, podsInAllNamespaces)
+    val nextStatuses =
+      calcNextClusterThrottleStatuses(targetClusterThrottles, podsInAllNamespaces, namespaces)
     if (nextStatuses.isEmpty) {
       log.info("All clusterthrottle statuses are up-to-date. No updates.")
     }
@@ -289,7 +306,8 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
     val clusterThrottleStatusesToReconcile = for {
       (_, throttles) <- cache.clusterThrottles.toImmutable.toList
       pods           = cache.pods.toImmutable.values.fold(Set.empty)(_ ++ _)
-      clthr          <- _calcNextClusterThrottleStatuses(throttles, pods)
+      namespaces     = cache.namespaces.toImmutable.flatMap(kv => kv._2.map(ns => ns.name -> ns).toMap)
+      clthr          <- _calcNextClusterThrottleStatuses(throttles, pods, namespaces)
     } yield clthr
 
     val fut = Future.sequence(clusterThrottleStatusesToReconcile.map {
@@ -316,9 +334,29 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
   def updateClusterThrottleBecauseOf(pod: Pod): Unit = {
     val podsInAllNamespaces = cache.pods.toImmutable.values.fold(Set.empty)(_ ++ _)
     val allClusterThrottles = cache.clusterThrottles.toImmutable.values.fold(Set.empty)(_ ++ _)
+    val namespaces =
+      cache.namespaces.toImmutable.flatMap(kv => kv._2.map(ns => ns.name -> ns).toMap)
 
     for {
-      (key, st) <- _calcNextClusterThrottleStatuses(allClusterThrottles, podsInAllNamespaces)
+      (key, st) <- _calcNextClusterThrottleStatuses(allClusterThrottles,
+                                                    podsInAllNamespaces,
+                                                    namespaces)
+    } yield {
+      syncClusterThrottle(key, st)
+    }
+  }
+
+  // on detecting some namespace change.
+  def updateClusterThrottleBecauseOf(namespace: Namespace): Unit = {
+    val podsInAllNamespaces = cache.pods.toImmutable.values.fold(Set.empty)(_ ++ _)
+    val allClusterThrottles = cache.clusterThrottles.toImmutable.values.fold(Set.empty)(_ ++ _)
+    val namespaces =
+      cache.namespaces.toImmutable.flatMap(kv => kv._2.map(ns => ns.name -> ns).toMap)
+
+    for {
+      (key, st) <- _calcNextClusterThrottleStatuses(allClusterThrottles,
+                                                    podsInAllNamespaces,
+                                                    namespaces)
     } yield {
       syncClusterThrottle(key, st)
     }
@@ -327,9 +365,13 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
   // on detecting some throttle change.
   def updateClusterThrottleBecauseOf(clthrottle: v1alpha1.ClusterThrottle): Unit = {
     val podsInAllNamespaces = cache.pods.toImmutable.values.fold(Set.empty)(_ ++ _)
+    val namespaces =
+      cache.namespaces.toImmutable.flatMap(kv => kv._2.map(ns => ns.name -> ns).toMap)
 
     for {
-      (key, st) <- _calcNextClusterThrottleStatuses(Set(clthrottle), podsInAllNamespaces)
+      (key, st) <- _calcNextClusterThrottleStatuses(Set(clthrottle),
+                                                    podsInAllNamespaces,
+                                                    namespaces)
     } yield {
       syncClusterThrottle(key, st)
     }
@@ -351,6 +393,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
         updateThrottleBecauseOf(pod)
         updateClusterThrottleBecauseOf(pod)
       }
+
     case PodWatchEvent(e) if !isPodResponsible(e._object) =>
       log.info(
         "detected pod {} was {}.  but it will be ignored because it is not responsible for {}",
@@ -404,12 +447,25 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
             recordThrottleSpecMetric(e._object)
         }
       }
+
     case ThrottleWatchEvent(e) if !isThrottleResponsible(e._object) =>
       log.info(
         "detected throttle {} was {}.  but it will be ignored because it is not responsible for {}",
         e._object.key,
         e._type,
         config.throttlerName)
+
+    case NamespaceWatchEvent(e) =>
+      log.info("detected namespace {} was {}", e._object.key, e._type)
+      val updateOrRemoveThen = e._type match {
+        case EventType.DELETED =>
+          cache.namespaces.removeThen(e._object)(_)
+        case _ =>
+          cache.namespaces.updateThen(e._object)(_)
+      }
+      updateOrRemoveThen { namespace =>
+        updateClusterThrottleBecauseOf(namespace)
+      }
   }
 
   def resourceWatchHandler: Receive = {
@@ -437,10 +493,26 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
           !isThrottleAlreadyActiveFor(pod, t) && isThrottleInsufficientFor(pod, t))
 
       val clusterThrottles = cache.clusterThrottles.toImmutable.values.fold(Set.empty)(_ ++ _)
-      val activeClusterThrottles =
-        clusterThrottles.filter(isClusterThrottleAlreadyActiveFor(pod, _))
-      val insufficientClusterThrottles = clusterThrottles.filter(t =>
-        !isClusterThrottleAlreadyActiveFor(pod, t) && isClusterThrottleInsufficientFor(pod, t))
+      val namespaces =
+        cache.namespaces.toImmutable.flatMap(kv => kv._2.map(ns => ns.name -> ns).toMap)
+      val activeClusterThrottles = clusterThrottles.filter { clthr =>
+        if (namespaces.contains(pod.namespace)) {
+          isClusterThrottleAlreadyActiveFor(pod, namespaces(pod.namespace), clthr)
+        } else {
+          false
+        }
+      }
+      val insufficientClusterThrottles = clusterThrottles.filter { clthr =>
+        if (namespaces.contains(pod.namespace)) {
+          val podsNs = namespaces(pod.namespace)
+          !isClusterThrottleAlreadyActiveFor(pod, podsNs, clthr) && isClusterThrottleInsufficientFor(
+            pod,
+            podsNs,
+            clthr)
+        } else {
+          false
+        }
+      }
 
       val isThrottled = activeThrottles.nonEmpty || activeClusterThrottles.nonEmpty || insufficientThrottles.nonEmpty || insufficientClusterThrottles.nonEmpty
       if (isThrottled) {
@@ -559,6 +631,8 @@ object ThrottleController {
   private case class ThrottleWatchEvent(e: K8SWatchEvent[v1alpha1.Throttle])
 
   private case class ClusterThrottleWatchEvent(e: K8SWatchEvent[v1alpha1.ClusterThrottle])
+
+  private case class NamespaceWatchEvent(e: K8SWatchEvent[Namespace])
 
   def props(k8s: K8SRequestContext, config: KubeThrottleConfig) = {
     implicit val _k8s    = k8s

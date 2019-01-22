@@ -26,12 +26,20 @@ import com.github.everpeace.k8s.throttler.crd.v1alpha1.{
 import org.scalatest.{FreeSpec, Matchers}
 import skuber.LabelSelector.IsEqualRequirement
 import skuber.Resource.{Quantity, ResourceList}
-import skuber.{Container, LabelSelector, ObjectMeta, Pod, Resource}
+import skuber.{Container, LabelSelector, Namespace, ObjectMeta, Pod, Resource}
 
 class ClusterThrottleControllerLogicSpec
     extends FreeSpec
     with Matchers
     with ClusterThrottleControllerLogic {
+
+  def mkNs(labels: Map[String, String] = Map.empty) =
+    Namespace.from(
+      ObjectMeta(
+        name = commonMeta.namespace,
+        labels = labels
+      ))
+
   def mkPod(resourceRequirements: List[Option[Resource.Requirements]]): Pod = {
     val containers = resourceRequirements.zipWithIndex.map {
       case (rr, index) =>
@@ -66,7 +74,11 @@ class ClusterThrottleControllerLogicSpec
             "ct1",
             v1alpha1.ClusterThrottle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.ClusterThrottle.Selector(
+                List(
+                  v1alpha1.ClusterThrottle.SelectorItem(
+                    LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               // throttle is defined on "r" and "s"
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
@@ -82,26 +94,26 @@ class ClusterThrottleControllerLogicSpec
               resourceRequests = Map("r" -> Quantity("3"))
             )
           ))
-
+        val ns = mkNs()
         val podRequestsR = mkPod(List(resourceRequirements(Map("r" -> Quantity("1"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleAlreadyActiveFor(podRequestsR, clthrottle) shouldBe true
+        isClusterThrottleAlreadyActiveFor(podRequestsR, ns, clthrottle) shouldBe true
 
         val podRequestsS = mkPod(List(resourceRequirements(Map("s" -> Quantity("3"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleAlreadyActiveFor(podRequestsS, clthrottle) shouldBe false
+        isClusterThrottleAlreadyActiveFor(podRequestsS, ns, clthrottle) shouldBe false
 
         val podRequestsT = mkPod(List(resourceRequirements(Map("t" -> Quantity("3"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleAlreadyActiveFor(podRequestsT, clthrottle) shouldBe false
+        isClusterThrottleAlreadyActiveFor(podRequestsT, ns, clthrottle) shouldBe false
 
         val podNoLabel = mkPod(List(resourceRequirements(Map("s" -> Quantity("3"))))).copy(
           metadata = commonMeta.copy(labels = Map.empty),
         )
-        isClusterThrottleAlreadyActiveFor(podNoLabel, clthrottle) shouldBe false
+        isClusterThrottleAlreadyActiveFor(podNoLabel, ns, clthrottle) shouldBe false
       }
 
       "should evaluate active when the clusterthrottle's status.podCounts is active" in {
@@ -110,7 +122,11 @@ class ClusterThrottleControllerLogicSpec
             "clt1",
             v1alpha1.ClusterThrottle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.ClusterThrottle.Selector(
+                List(
+                  v1alpha1.ClusterThrottle.SelectorItem(
+                    LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceCounts = Option(
                   ResourceCount(
@@ -138,15 +154,17 @@ class ClusterThrottleControllerLogicSpec
           )
           .withName("clt1")
 
+        val ns = mkNs()
+
         val podRequestsR = mkPod(List(resourceRequirements(Map("r" -> Quantity("1"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleAlreadyActiveFor(podRequestsR, clusterthrottle) shouldBe true
+        isClusterThrottleAlreadyActiveFor(podRequestsR, ns, clusterthrottle) shouldBe true
 
         val podNoLabel = mkPod(List(resourceRequirements(Map("s" -> Quantity("3"))))).copy(
           metadata = commonMeta.copy(labels = Map.empty),
         )
-        isClusterThrottleAlreadyActiveFor(podNoLabel, clusterthrottle) shouldBe false
+        isClusterThrottleAlreadyActiveFor(podNoLabel, ns, clusterthrottle) shouldBe false
       }
     }
     "isClusterThrottleInsufficientFor" - {
@@ -156,7 +174,11 @@ class ClusterThrottleControllerLogicSpec
             "ct1",
             v1alpha1.ClusterThrottle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.ClusterThrottle.Selector(
+                List(
+                  v1alpha1.ClusterThrottle.SelectorItem(
+                    LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               // throttle is defined on "r" and "s"
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("3"), "s" -> Quantity("2"))
@@ -172,70 +194,71 @@ class ClusterThrottleControllerLogicSpec
               resourceRequests = Map("r" -> Quantity("1"))
             )
           ))
+        val ns = mkNs()
 
         val podRequestsR1 = mkPod(List(resourceRequirements(Map("r" -> Quantity("1"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleInsufficientFor(podRequestsR1, clthrottle) shouldBe false
+        isClusterThrottleInsufficientFor(podRequestsR1, ns, clthrottle) shouldBe false
 
         val podRequestsR2 = mkPod(List(resourceRequirements(Map("r" -> Quantity("2"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleInsufficientFor(podRequestsR2, clthrottle) shouldBe false
+        isClusterThrottleInsufficientFor(podRequestsR2, ns, clthrottle) shouldBe false
 
         val podRequestsR3 = mkPod(List(resourceRequirements(Map("r" -> Quantity("3"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleInsufficientFor(podRequestsR3, clthrottle) shouldBe true
+        isClusterThrottleInsufficientFor(podRequestsR3, ns, clthrottle) shouldBe true
 
         val podRequestsS1 = mkPod(List(resourceRequirements(Map("s" -> Quantity("1"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleInsufficientFor(podRequestsS1, clthrottle) shouldBe false
+        isClusterThrottleInsufficientFor(podRequestsS1, ns, clthrottle) shouldBe false
 
         val podRequestsS2 = mkPod(List(resourceRequirements(Map("s" -> Quantity("2"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleInsufficientFor(podRequestsS2, clthrottle) shouldBe false
+        isClusterThrottleInsufficientFor(podRequestsS2, ns, clthrottle) shouldBe false
 
         val podRequestsS3 = mkPod(List(resourceRequirements(Map("s" -> Quantity("3"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleInsufficientFor(podRequestsS3, clthrottle) shouldBe true
+        isClusterThrottleInsufficientFor(podRequestsS3, ns, clthrottle) shouldBe true
 
         val podRequestR1S1 =
           mkPod(List(resourceRequirements(Map("r" -> Quantity("1"), "s" -> Quantity("1"))))).copy(
             metadata = commonMeta,
           )
-        isClusterThrottleInsufficientFor(podRequestR1S1, clthrottle) shouldBe false
+        isClusterThrottleInsufficientFor(podRequestR1S1, ns, clthrottle) shouldBe false
 
         val podRequestR1S3 =
           mkPod(List(resourceRequirements(Map("r" -> Quantity("1"), "s" -> Quantity("3"))))).copy(
             metadata = commonMeta,
           )
-        isClusterThrottleInsufficientFor(podRequestR1S3, clthrottle) shouldBe true
+        isClusterThrottleInsufficientFor(podRequestR1S3, ns, clthrottle) shouldBe true
 
         val podRequestR3S1 =
           mkPod(List(resourceRequirements(Map("r" -> Quantity("3"), "s" -> Quantity("1"))))).copy(
             metadata = commonMeta,
           )
-        isClusterThrottleInsufficientFor(podRequestR3S1, clthrottle) shouldBe true
+        isClusterThrottleInsufficientFor(podRequestR3S1, ns, clthrottle) shouldBe true
 
         val podRequestR3S3 =
           mkPod(List(resourceRequirements(Map("r" -> Quantity("3"), "s" -> Quantity("3"))))).copy(
             metadata = commonMeta,
           )
-        isClusterThrottleInsufficientFor(podRequestR3S3, clthrottle) shouldBe true
+        isClusterThrottleInsufficientFor(podRequestR3S3, ns, clthrottle) shouldBe true
 
         val podNoRequests = mkPod(List.empty).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleInsufficientFor(podNoRequests, clthrottle) shouldBe false
+        isClusterThrottleInsufficientFor(podNoRequests, ns, clthrottle) shouldBe false
 
         val podNoLabel = mkPod(List(resourceRequirements(Map("s" -> Quantity("3"))))).copy(
           metadata = commonMeta.copy(labels = Map.empty),
         )
-        isClusterThrottleInsufficientFor(podNoLabel, clthrottle) shouldBe false
+        isClusterThrottleInsufficientFor(podNoLabel, ns, clthrottle) shouldBe false
       }
 
       "should evaluate 'insufficient' when there are no space for podCount" in {
@@ -244,7 +267,11 @@ class ClusterThrottleControllerLogicSpec
             "clt1",
             v1alpha1.ClusterThrottle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.ClusterThrottle.Selector(
+                List(
+                  v1alpha1.ClusterThrottle.SelectorItem(
+                    LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceCounts = Option(
                   ResourceCount(
@@ -271,22 +298,27 @@ class ClusterThrottleControllerLogicSpec
           )
           .withName("clt1")
 
+        val ns = mkNs()
         val podRequestsR = mkPod(List(resourceRequirements(Map("r" -> Quantity("1"))))).copy(
           metadata = commonMeta,
         )
-        isClusterThrottleInsufficientFor(podRequestsR, clusterthrottleNoSpace) shouldBe true
+        isClusterThrottleInsufficientFor(podRequestsR, ns, clusterthrottleNoSpace) shouldBe true
 
         val podNoLabel = mkPod(List(resourceRequirements(Map("s" -> Quantity("3"))))).copy(
           metadata = commonMeta.copy(labels = Map.empty),
         )
-        isClusterThrottleInsufficientFor(podNoLabel, clusterthrottleNoSpace) shouldBe false
+        isClusterThrottleInsufficientFor(podNoLabel, ns, clusterthrottleNoSpace) shouldBe false
 
         val clusterthrottleWithSpace = v1alpha1
           .ClusterThrottle(
             "clt1",
             v1alpha1.ClusterThrottle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.ClusterThrottle.Selector(
+                List(
+                  v1alpha1.ClusterThrottle.SelectorItem(
+                    LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceCounts = Option(
                   ResourceCount(
@@ -313,7 +345,7 @@ class ClusterThrottleControllerLogicSpec
             )
           )
           .withName("clt1")
-        isClusterThrottleInsufficientFor(podRequestsR, clusterthrottleWithSpace) shouldBe false
+        isClusterThrottleInsufficientFor(podRequestsR, ns, clusterthrottleWithSpace) shouldBe false
       }
     }
     "calcNextClusterThrottleStatuses" - {
@@ -327,13 +359,17 @@ class ClusterThrottleControllerLogicSpec
             "ct1",
             v1alpha1.ClusterThrottle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.ClusterThrottle.Selector(
+                List(
+                  v1alpha1.ClusterThrottle.SelectorItem(
+                    LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceRequests = Map("s" -> Quantity("3"))
               )
             )
           )
-
+        val nss         = Map("" -> mkNs())
         val pods        = Set(pod)
         val clthrottles = Set(clthrottle)
         val expectedStatus = v1alpha1.ClusterThrottle.Status(
@@ -343,7 +379,7 @@ class ClusterThrottleControllerLogicSpec
           used = ResourceAmount()
         )
 
-        val actual = calcNextClusterThrottleStatuses(clthrottles, pods)
+        val actual = calcNextClusterThrottleStatuses(clthrottles, pods, nss)
         actual.size shouldBe 1
         actual.head shouldBe clthrottle.key -> expectedStatus
       }
@@ -363,13 +399,18 @@ class ClusterThrottleControllerLogicSpec
             "ct1",
             v1alpha1.ClusterThrottle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.ClusterThrottle.Selector(
+                List(
+                  v1alpha1.ClusterThrottle.SelectorItem(
+                    LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
               )
             )
           )
-
+        val ns          = mkNs()
+        val nss         = Map(ns.name -> ns)
         val pods        = Set(pod1, pod2)
         val clthrottles = Set(clthrottle)
         val expectedStatus = v1alpha1.ClusterThrottle.Status(
@@ -381,7 +422,7 @@ class ClusterThrottleControllerLogicSpec
           )
         )
 
-        val actual = calcNextClusterThrottleStatuses(clthrottles, pods)
+        val actual = calcNextClusterThrottleStatuses(clthrottles, pods, nss)
         actual.size shouldBe 1
         actual.head shouldBe clthrottle.key -> expectedStatus
       }
@@ -399,13 +440,18 @@ class ClusterThrottleControllerLogicSpec
             "ct1",
             v1alpha1.ClusterThrottle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.ClusterThrottle.Selector(
+                List(
+                  v1alpha1.ClusterThrottle.SelectorItem(
+                    LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("1"))
               )
             )
           )
-
+        val ns          = mkNs()
+        val nss         = Map(ns.name -> ns)
         val pods        = Set(pod)
         val clthrottles = Set(clthrottle)
         val expectedStatus = v1alpha1.ClusterThrottle.Status(
@@ -417,7 +463,7 @@ class ClusterThrottleControllerLogicSpec
           )
         )
 
-        val actual = calcNextClusterThrottleStatuses(clthrottles, pods)
+        val actual = calcNextClusterThrottleStatuses(clthrottles, pods, nss)
         actual.size shouldBe 1
         actual.head shouldBe clthrottle.key -> expectedStatus
       }
@@ -435,13 +481,17 @@ class ClusterThrottleControllerLogicSpec
             "ct1",
             v1alpha1.ClusterThrottle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.ClusterThrottle.Selector(
+                List(
+                  v1alpha1.ClusterThrottle.SelectorItem(
+                    LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("3"))
               )
             )
           )
-
+        val nss         = Map("" -> mkNs())
         val pods        = Set(pod)
         val clthrottles = Set(clthrottle)
         val expectedStatus = v1alpha1.ClusterThrottle.Status(
@@ -453,7 +503,7 @@ class ClusterThrottleControllerLogicSpec
           )
         )
 
-        val actual = calcNextClusterThrottleStatuses(clthrottles, pods)
+        val actual = calcNextClusterThrottleStatuses(clthrottles, pods, nss)
         actual.size shouldBe 1
         actual.head shouldBe clthrottle.key -> expectedStatus
       }
@@ -471,7 +521,11 @@ class ClusterThrottleControllerLogicSpec
             "clt1",
             v1alpha1.ClusterThrottle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.ClusterThrottle.Selector(
+                List(
+                  v1alpha1.ClusterThrottle.SelectorItem(
+                    LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceCounts = Option(
                   ResourceCount(
@@ -481,7 +535,8 @@ class ClusterThrottleControllerLogicSpec
             )
           )
           .withName("clt1")
-
+        val ns               = mkNs()
+        val nss              = Map(ns.name -> ns)
         val pods             = Set(pod)
         val clusterthrottles = Set(clusterthrottle)
         val expectedStatus = v1alpha1.ClusterThrottle.Status(
@@ -499,7 +554,7 @@ class ClusterThrottleControllerLogicSpec
           )
         )
 
-        val actual = calcNextClusterThrottleStatuses(clusterthrottles, pods)
+        val actual = calcNextClusterThrottleStatuses(clusterthrottles, pods, nss)
         actual.size shouldBe 1
         actual.head shouldBe clusterthrottle.key -> expectedStatus
       }
@@ -517,7 +572,11 @@ class ClusterThrottleControllerLogicSpec
             "clt1",
             v1alpha1.ClusterThrottle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.ClusterThrottle.Selector(
+                List(
+                  v1alpha1.ClusterThrottle.SelectorItem(
+                    LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceCounts = Option(
                   ResourceCount(
@@ -528,6 +587,8 @@ class ClusterThrottleControllerLogicSpec
           )
           .withName("clt1")
 
+        val ns               = mkNs()
+        val nss              = Map(ns.name -> ns)
         val pods             = Set(pod)
         val clusterthrottles = Set(clusterthrottle)
         val expectedStatus = v1alpha1.ClusterThrottle.Status(
@@ -545,7 +606,7 @@ class ClusterThrottleControllerLogicSpec
           )
         )
 
-        val actual = calcNextClusterThrottleStatuses(clusterthrottles, pods)
+        val actual = calcNextClusterThrottleStatuses(clusterthrottles, pods, nss)
         actual.size shouldBe 1
         actual.head shouldBe clusterthrottle.key -> expectedStatus
       }

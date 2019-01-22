@@ -63,7 +63,9 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
             "t1",
             v1alpha1.Throttle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.Throttle.Selector(List(
+                v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+              )),
               // throttle is defined on "r" and "s"
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
@@ -111,7 +113,9 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
             "t1",
             v1alpha1.Throttle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.Throttle.Selector(List(
+                v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+              )),
               threshold = ResourceAmount(
                 resourceCounts = Option(
                   ResourceCount(
@@ -158,7 +162,10 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
             "t1",
             v1alpha1.Throttle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.Throttle.Selector(
+                List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               // throttle is defined on "r" and "s"
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("3"), "s" -> Quantity("2"))
@@ -247,7 +254,9 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
             "t1",
             v1alpha1.Throttle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.Throttle.Selector(List(
+                v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+              )),
               threshold = ResourceAmount(
                 resourceCounts = Option(
                   ResourceCount(
@@ -290,7 +299,9 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
             "t1",
             v1alpha1.Throttle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.Throttle.Selector(List(
+                v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+              )),
               threshold = ResourceAmount(
                 resourceCounts = Option(ResourceCount(
                   pod = Option(2)
@@ -330,7 +341,10 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
             "t1",
             v1alpha1.Throttle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.Throttle.Selector(
+                List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceRequests = Map("s" -> Quantity("3"))
               )
@@ -368,7 +382,10 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
             "t1",
             v1alpha1.Throttle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.Throttle.Selector(
+                List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
               )
@@ -406,7 +423,10 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
             "t1",
             v1alpha1.Throttle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.Throttle.Selector(
+                List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("1"))
               )
@@ -444,7 +464,10 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
             "t1",
             v1alpha1.Throttle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.Throttle.Selector(
+                List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("3"))
               )
@@ -482,7 +505,10 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
             "t1",
             v1alpha1.Throttle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.Throttle.Selector(
+                List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceCounts = Option(
                   ResourceCount(
@@ -529,7 +555,10 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
             "t1",
             v1alpha1.Throttle.Spec(
               throttlerName = "kube-throttler",
-              selector = LabelSelector(IsEqualRequirement("key", "value")),
+              selector = v1alpha1.Throttle.Selector(
+                List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
               threshold = ResourceAmount(
                 resourceCounts = Option(ResourceCount(
                   pod = Option(2)

@@ -40,7 +40,10 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
         "throttle",
         v1alpha1.Throttle.Spec(
           throttlerName = "kube-throttler",
-          selector = LabelSelector(),
+          selector = v1alpha1.Throttle.Selector(
+            List(
+              v1alpha1.Throttle.SelectorItem(LabelSelector())
+            )),
           threshold = ResourceAmount(
             resourceRequests = Map("cpu" -> Quantity("1"))
           )
@@ -64,7 +67,10 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
         "nospacethrottle",
         v1alpha1.Throttle.Spec(
           throttlerName = "kube-throttler",
-          selector = LabelSelector(),
+          selector = v1alpha1.Throttle.Selector(
+            List(
+              v1alpha1.Throttle.SelectorItem(LabelSelector())
+            )),
           threshold = ResourceAmount(
             resourceRequests = Map("cpu" -> Quantity("1"))
           )
@@ -79,7 +85,10 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
         "clusterthrottle",
         v1alpha1.ClusterThrottle.Spec(
           throttlerName = "kube-throttler",
-          selector = LabelSelector(),
+          selector = v1alpha1.ClusterThrottle.Selector(
+            List(
+              v1alpha1.ClusterThrottle.SelectorItem(LabelSelector())
+            )),
           threshold = ResourceAmount(
             resourceRequests = Map("cpu" -> Quantity("1"))
           )
@@ -102,7 +111,10 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
         "nospacethrottle",
         v1alpha1.ClusterThrottle.Spec(
           throttlerName = "kube-throttler",
-          selector = LabelSelector(),
+          selector = v1alpha1.ClusterThrottle.Selector(
+            List(
+              v1alpha1.ClusterThrottle.SelectorItem(LabelSelector())
+            )),
           threshold = ResourceAmount(
             resourceRequests = Map("cpu" -> Quantity("1"))
           )

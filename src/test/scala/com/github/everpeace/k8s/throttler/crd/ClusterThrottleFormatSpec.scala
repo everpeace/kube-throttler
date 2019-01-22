@@ -16,6 +16,7 @@
 
 package com.github.everpeace.k8s.throttler.crd
 
+import com.github.everpeace.k8s.throttler.crd.v1alpha1.ClusterThrottle.{Selector, SelectorItem}
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.{
   IsResourceAmountThrottled,
@@ -43,9 +44,13 @@ class ClusterThrottleFormatSpec extends FreeSpec with Matchers {
            |  "spec": {
            |    "throttlerName": "kube-throttler",
            |    "selector": {
-           |      "matchLabels": {
-           |        "key": "value"
-           |      }
+           |      "selectorTerms": [{
+           |        "podSelector": {
+           |          "matchLabels": {
+           |            "key": "value"
+           |          }
+           |        }
+           |      }]
            |    },
            |    "threshold": {
            |      "resourceCounts": {
@@ -88,7 +93,13 @@ class ClusterThrottleFormatSpec extends FreeSpec with Matchers {
           name = "app-throttle",
           spec = v1alpha1.ClusterThrottle.Spec(
             throttlerName = "kube-throttler",
-            selector = LabelSelector(IsEqualRequirement("key", "value")),
+            selector = Selector(
+              selectorTerms = List(
+                SelectorItem(
+                  podSelector = LabelSelector(IsEqualRequirement("key", "value")),
+                  namespaceSelector = None
+                )
+              )),
             threshold = ResourceAmount(
               resourceCounts = Option(
                 ResourceCount(

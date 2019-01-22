@@ -25,20 +25,34 @@ import cats.instances.list._
 
 trait ClusterThrottleControllerLogic {
 
-  def isClusterThrottleAlreadyActiveFor(pod: Pod, clthrottle: v1alpha1.ClusterThrottle): Boolean =
-    clthrottle.isAlreadyActiveFor(pod)
-  def isClusterThrottleInsufficientFor(pod: Pod, clthrottle: v1alpha1.ClusterThrottle): Boolean =
-    clthrottle.isInsufficientFor(pod)
+  def isClusterThrottleAlreadyActiveFor(
+      pod: Pod,
+      ns: Namespace,
+      clthrottle: v1alpha1.ClusterThrottle
+    ): Boolean =
+    clthrottle.isAlreadyActiveFor(pod, ns)
+  def isClusterThrottleInsufficientFor(
+      pod: Pod,
+      ns: Namespace,
+      clthrottle: v1alpha1.ClusterThrottle
+    ): Boolean =
+    clthrottle.isInsufficientFor(pod, ns)
   def calcNextClusterThrottleStatuses(
       targetClusterThrottles: Set[v1alpha1.ClusterThrottle],
-      podsInAllNamespaces: Set[Pod]
+      podsInAllNamespaces: Set[Pod],
+      namespaces: Map[String, Namespace]
     ): List[(ObjectKey, v1alpha1.ClusterThrottle.Status)] = {
 
     for {
       clthrottle <- targetClusterThrottles.toList
 
-      matchedPods = podsInAllNamespaces.filter(p =>
-        clthrottle.spec.selector.matches(p.metadata.labels))
+      matchedPods = podsInAllNamespaces.filter { p =>
+        if (namespaces.contains(p.namespace)) {
+          clthrottle.spec.selector.matches(p, namespaces(p.namespace))
+        } else {
+          false
+        }
+      }
       runningPods = matchedPods
         .filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
         .toList

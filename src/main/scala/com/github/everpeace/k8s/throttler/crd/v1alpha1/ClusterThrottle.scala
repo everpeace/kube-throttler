@@ -26,6 +26,7 @@ import skuber.{
   CustomResource,
   HasStatusSubresource,
   LabelSelector,
+  Namespace,
   Pod,
   ResourceDefinition,
   ResourceSpecification
@@ -33,7 +34,11 @@ import skuber.{
 
 object ClusterThrottle {
 
-  case class Spec(throttlerName: String, selector: LabelSelector, threshold: ResourceAmount)
+  case class Spec(throttlerName: String, selector: Selector, threshold: ResourceAmount)
+  case class Selector(selectorTerms: List[SelectorItem])
+  case class SelectorItem(
+      podSelector: LabelSelector,
+      namespaceSelector: Option[LabelSelector] = None)
 
   case class Status(throttled: IsResourceAmountThrottled, used: ResourceAmount)
 
@@ -46,9 +51,21 @@ object ClusterThrottle {
     import play.api.libs.json._
     import skuber.json.format.{maybeEmptyFormatMethods, jsPath2LabelSelFormat}
 
+    implicit val clusterThrottleSelectorItemFmt: Format[v1alpha1.ClusterThrottle.SelectorItem] = (
+      (JsPath \ "podSelector").formatLabelSelector and
+        (JsPath \ "namespaceSelector").formatNullableLabelSelector
+    )(v1alpha1.ClusterThrottle.SelectorItem.apply,
+      unlift(v1alpha1.ClusterThrottle.SelectorItem.unapply))
+
+    implicit val clusterThrottleSelectorFmt: Format[v1alpha1.ClusterThrottle.Selector] =
+      (JsPath \ "selectorTerms")
+        .formatMaybeEmptyList[v1alpha1.ClusterThrottle.SelectorItem]
+        .inmap(v1alpha1.ClusterThrottle.Selector.apply,
+               unlift(v1alpha1.ClusterThrottle.Selector.unapply))
+
     implicit val clusterThrottleSpecFmt: Format[v1alpha1.ClusterThrottle.Spec] = (
       (JsPath \ "throttlerName").formatMaybeEmptyString(true) and
-        (JsPath \ "selector").formatLabelSelector and
+        (JsPath \ "selector").format[v1alpha1.ClusterThrottle.Selector] and
         (JsPath \ "threshold").format[ResourceAmount]
     )(v1alpha1.ClusterThrottle.Spec.apply, unlift(v1alpha1.ClusterThrottle.Spec.unapply))
 
@@ -59,6 +76,25 @@ object ClusterThrottle {
   trait Syntax extends CommonSyntax {
     import com.github.everpeace.k8s._
 
+    implicit class ThrottleSelectorItemSyntax(selectorItem: SelectorItem) {
+      def matches(pod: skuber.Pod, namespace: skuber.Namespace): Boolean = {
+        (namespace.name == pod.namespace) && {
+          val namespaceSelectorEmpty = selectorItem.namespaceSelector.isEmpty
+          val namespaceMatched =
+            selectorItem.namespaceSelector.exists(_.matches(namespace.metadata.labels))
+          val podMatched = selectorItem.podSelector.matches(pod.metadata.labels)
+          (namespaceSelectorEmpty || namespaceMatched) && podMatched
+        }
+      }
+    }
+
+    implicit class ThrottleSelectorSyntax(selector: Selector) {
+      def matches(pod: skuber.Pod, namespace: skuber.Namespace): Boolean = {
+        (namespace.name == pod.namespace) && selector.selectorTerms.exists(
+          _.matches(pod, namespace))
+      }
+    }
+
     implicit class ClusterThrottleSpecSyntax(spec: Spec) {
       def statusFor(used: ResourceAmount): Status = Status(
         throttled = used.isThrottledFor(spec.threshold, isThrottledOnEqual = true),
@@ -67,16 +103,16 @@ object ClusterThrottle {
     }
 
     implicit class ClusterThrottleSyntax(clthrottle: ClusterThrottle) {
-      def isTarget(pod: Pod): Boolean = clthrottle.spec.selector.matches(pod.metadata.labels)
+      def isTarget(pod: Pod, ns: Namespace): Boolean = clthrottle.spec.selector.matches(pod, ns)
 
-      def isAlreadyActiveFor(pod: Pod): Boolean = isTarget(pod) && {
+      def isAlreadyActiveFor(pod: Pod, ns: Namespace): Boolean = isTarget(pod, ns) && {
         (for {
           st        <- clthrottle.status
           throttled = st.throttled
         } yield throttled.isAlreadyThrottled(pod)).getOrElse(false)
       }
 
-      def isInsufficientFor(pod: Pod): Boolean = isTarget(pod) && {
+      def isInsufficientFor(pod: Pod, ns: Namespace): Boolean = isTarget(pod, ns) && {
         val podResourceAmount = pod.==>[ResourceAmount]
         val used              = clthrottle.status.map(_.used).getOrElse(zeroResourceAmount)
         val isThrottled =
