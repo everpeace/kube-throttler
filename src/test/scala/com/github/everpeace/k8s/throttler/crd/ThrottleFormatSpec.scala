@@ -16,6 +16,8 @@
 
 package com.github.everpeace.k8s.throttler.crd
 
+import java.time.ZonedDateTime
+
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Throttle.{Selector, SelectorItem}
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.{
@@ -62,7 +64,16 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
            |        "memory": "15Gi",
            |        "nvidia.com/gpu": "10"
            |      }
-           |    }
+           |    },
+           |    "temporalThresholdOverrides": [{
+           |      "begin": "2019-02-01T00:00:00+09:00",
+           |      "end": "2019-03-01T00:00:00+09:00",
+           |      "threshold": {
+           |        "resourceRequests": {
+           |          "cpu": "20"
+           |        }
+           |      }
+           |    }]
            |  },
            |  "status": {
            |    "throttled": {
@@ -70,7 +81,7 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
            |        "pod": true
            |      },
            |      "resourceRequests": {
-           |        "cpu": true,
+           |        "cpu": false,
            |        "memory": false,
            |        "nvidia.com/gpu": true
            |      }
@@ -83,6 +94,16 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
            |        "cpu": "12",
            |        "memory": "12Gi",
            |        "nvidia.com/gpu": "12"
+           |      }
+           |    },
+           |    "calculatedThreshold":{
+           |      "resourceCounts": {
+           |        "pod": 10
+           |      },
+           |      "resourceRequests": {
+           |        "cpu": "20",
+           |        "memory": "15Gi",
+           |        "nvidia.com/gpu": "10"
            |      }
            |    }
            |  }
@@ -108,7 +129,16 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
                 "memory"         -> Quantity("15Gi"),
                 "nvidia.com/gpu" -> Quantity("10")
               )
-            )
+            ),
+            temporalThresholdOverrides = List(v1alpha1.TemporalThresholdOverride(
+              begin = ZonedDateTime.parse("2019-02-01T00:00:00+09:00"),
+              end = ZonedDateTime.parse("2019-03-01T00:00:00+09:00"),
+              threshold = ResourceAmount(
+                resourceRequests = Map(
+                  "cpu" -> Quantity("20")
+                )
+              )
+            ))
           )
         )
         .withNamespace("default")
@@ -118,7 +148,7 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
               pod = Option(true)
             )),
             resourceRequests = Map(
-              "cpu"            -> true,
+              "cpu"            -> false,
               "memory"         -> false,
               "nvidia.com/gpu" -> true
             )
@@ -132,7 +162,17 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
               "memory"         -> Quantity("12Gi"),
               "nvidia.com/gpu" -> Quantity("12")
             )
-          )
+          ),
+          calculatedThreshold = Option(ResourceAmount(
+            resourceCounts = Option(ResourceCount(
+              pod = Option(10)
+            )),
+            resourceRequests = Map(
+              "cpu"            -> Quantity("20"),
+              "memory"         -> Quantity("15Gi"),
+              "nvidia.com/gpu" -> Quantity("10")
+            )
+          ))
         ))
 
       json.validate[v1alpha1.Throttle].get shouldBe obj

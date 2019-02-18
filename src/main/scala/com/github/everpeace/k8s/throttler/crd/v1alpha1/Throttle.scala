@@ -34,11 +34,18 @@ import com.github.everpeace.k8s._
 
 object Throttle {
 
-  case class Spec(throttlerName: String, selector: Selector, threshold: ResourceAmount)
+  case class Spec(
+      throttlerName: String,
+      selector: Selector,
+      threshold: ResourceAmount,
+      temporalThresholdOverrides: List[TemporalThresholdOverride] = List.empty)
   case class Selector(selectorTerms: List[SelectorItem])
   case class SelectorItem(podSelector: LabelSelector)
 
-  case class Status(throttled: IsResourceAmountThrottled, used: ResourceAmount)
+  case class Status(
+      throttled: IsResourceAmountThrottled,
+      used: ResourceAmount,
+      calculatedThreshold: Option[ResourceAmount] = None)
 
   val crd: CustomResourceDefinition = CustomResourceDefinition[v1alpha1.Throttle]
 
@@ -61,7 +68,9 @@ object Throttle {
     implicit val throttleSpecFmt: Format[v1alpha1.Throttle.Spec] = (
       (JsPath \ "throttlerName").formatMaybeEmptyString(true) and
         (JsPath \ "selector").format[v1alpha1.Throttle.Selector] and
-        (JsPath \ "threshold").format[ResourceAmount]
+        (JsPath \ "threshold").format[ResourceAmount] and
+        (JsPath \ "temporalThresholdOverrides")
+          .formatMaybeEmptyList[v1alpha1.TemporalThresholdOverride]
     )(v1alpha1.Throttle.Spec.apply, unlift(v1alpha1.Throttle.Spec.unapply))
 
     implicit val throttleStatusFmt: Format[v1alpha1.Throttle.Status] =

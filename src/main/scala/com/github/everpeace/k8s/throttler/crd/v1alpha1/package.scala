@@ -36,6 +36,11 @@ package object v1alpha1 {
 
   case class ResourceCount(pod: Option[Int] = None)
 
+  case class TemporalThresholdOverride(
+      begin: skuber.Timestamp,
+      end: skuber.Timestamp,
+      threshold: ResourceAmount)
+
   case class IsResourceCountThrottled(pod: Option[Boolean] = None)
 
   case class IsResourceAmountThrottled(
@@ -43,14 +48,21 @@ package object v1alpha1 {
       resourceRequests: Map[String, Boolean] = Map.empty)
 
   trait CommonJsonFormat {
+    import play.api.libs.functional.syntax._
     import play.api.libs.json._
-    import skuber.json.format.quantityFormat
+    import skuber.json.format.{quantityFormat, timeReads, timewWrites}
 
     implicit val resourceCountsFmt: Format[v1alpha1.ResourceCount] =
       Json.format[v1alpha1.ResourceCount]
 
     implicit val resourceAmountFmt: Format[v1alpha1.ResourceAmount] =
       Json.format[v1alpha1.ResourceAmount]
+
+    implicit val temporalThrottleOverrideFmt: Format[v1alpha1.TemporalThresholdOverride] = (
+      (JsPath \ "begin").format[skuber.Timestamp] and
+        (JsPath \ "end").format[skuber.Timestamp] and
+        (JsPath \ "threshold").format[v1alpha1.ResourceAmount]
+    )(v1alpha1.TemporalThresholdOverride.apply, unlift(v1alpha1.TemporalThresholdOverride.unapply))
 
     implicit val isResourceCountThrottledFmt: Format[v1alpha1.IsResourceCountThrottled] =
       Json.format[v1alpha1.IsResourceCountThrottled]
