@@ -32,7 +32,8 @@ trait ThrottleControllerLogic {
 
   def calcNextThrottleStatuses(
       targetThrottles: Set[v1alpha1.Throttle],
-      podsInNs: Set[Pod]
+      podsInNs: Set[Pod],
+      at: skuber.Timestamp
     ): List[(ObjectKey, v1alpha1.Throttle.Status)] = {
 
     for {
@@ -43,7 +44,7 @@ trait ThrottleControllerLogic {
         .filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
         .toList
       runningTotal = runningPods.==>[List[ResourceAmount]].foldLeft(zeroResourceAmount)(_ add _)
-      nextStatus   = throttle.spec.statusFor(runningTotal)
+      nextStatus   = throttle.spec.statusFor(runningTotal, at)
 
       toUpdate <- if (throttle.status != Option(nextStatus)) {
                    List(throttle.key -> nextStatus)

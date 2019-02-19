@@ -20,12 +20,7 @@ import java.time.ZonedDateTime
 
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Throttle.{Selector, SelectorItem}
-import com.github.everpeace.k8s.throttler.crd.v1alpha1.{
-  IsResourceAmountThrottled,
-  IsResourceCountThrottled,
-  ResourceAmount,
-  ResourceCount
-}
+import com.github.everpeace.k8s.throttler.crd.v1alpha1._
 import org.scalatest.{FreeSpec, Matchers}
 import play.api.libs.json._
 import skuber.LabelSelector
@@ -97,14 +92,17 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
            |      }
            |    },
            |    "calculatedThreshold":{
-           |      "resourceCounts": {
-           |        "pod": 10
+           |      "threshold": {
+           |        "resourceCounts": {
+           |          "pod": 10
+           |        },
+           |        "resourceRequests": {
+           |          "cpu": "20",
+           |          "memory": "15Gi",
+           |          "nvidia.com/gpu": "10"
+           |        }
            |      },
-           |      "resourceRequests": {
-           |        "cpu": "20",
-           |        "memory": "15Gi",
-           |        "nvidia.com/gpu": "10"
-           |      }
+           |      "calculatedAt": "2019-02-01T00:00:00+09:00"
            |    }
            |  }
            |}
@@ -163,15 +161,18 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
               "nvidia.com/gpu" -> Quantity("12")
             )
           ),
-          calculatedThreshold = Option(ResourceAmount(
-            resourceCounts = Option(ResourceCount(
-              pod = Option(10)
-            )),
-            resourceRequests = Map(
-              "cpu"            -> Quantity("20"),
-              "memory"         -> Quantity("15Gi"),
-              "nvidia.com/gpu" -> Quantity("10")
-            )
+          calculatedThreshold = Option(CalculatedThreshold(
+            ResourceAmount(
+              resourceCounts = Option(ResourceCount(
+                pod = Option(10)
+              )),
+              resourceRequests = Map(
+                "cpu"            -> Quantity("20"),
+                "memory"         -> Quantity("15Gi"),
+                "nvidia.com/gpu" -> Quantity("10")
+              )
+            ),
+            java.time.ZonedDateTime.parse("2019-02-01T00:00:00+09:00")
           ))
         ))
 

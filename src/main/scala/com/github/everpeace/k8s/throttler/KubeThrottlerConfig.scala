@@ -41,6 +41,11 @@ case class KubeThrottleConfig(config: Config) {
       Duration.fromNanos(
         throttlerConfig.getDuration("ask-timeout").toNanos
       ))
+
+  def reconcileTemporalThresholdOverride: FiniteDuration = Duration.fromNanos(
+    throttlerConfig.getDuration("reconcile-temporal-threshold-overrides-interval").toNanos
+  )
+
   def host: String = throttlerConfig.getString("host")
   def port: Int    = throttlerConfig.getInt("port")
 }

@@ -40,7 +40,8 @@ trait ClusterThrottleControllerLogic {
   def calcNextClusterThrottleStatuses(
       targetClusterThrottles: Set[v1alpha1.ClusterThrottle],
       podsInAllNamespaces: Set[Pod],
-      namespaces: Map[String, Namespace]
+      namespaces: Map[String, Namespace],
+      at: skuber.Timestamp
     ): List[(ObjectKey, v1alpha1.ClusterThrottle.Status)] = {
 
     for {
@@ -57,7 +58,7 @@ trait ClusterThrottleControllerLogic {
         .filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
         .toList
       runningTotal = runningPods.==>[List[ResourceAmount]].foldLeft(zeroResourceAmount)(_ add _)
-      nextStatus   = clthrottle.spec.statusFor(runningTotal)
+      nextStatus   = clthrottle.spec.statusFor(runningTotal, at)
 
       toUpdate <- if (clthrottle.status != Option(nextStatus)) {
                    List(clthrottle.key -> nextStatus)
