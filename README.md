@@ -73,10 +73,13 @@ a `Throttle` custom resource defines three things:
 - threshold of 
   - resource amount of `request`-ed computational resource of the throttle
   - count of resources (currently only `pod` is supported)
+  - those can be overridden by `temporalThresholdOverride`.  Please refer to [below section](#temporal-threshold-override).
 
-And it also has `status` field:
- 
-- `status` filed shows throttle status for each resource requests or resource counts defined in threshold setting and current total usage of `reauest`-ed resource amount or counts of `Running` pods matching `selector`
+And it also has `status` field. `status` field contains:
+
+- `used` shows the current total usage of `reauest`-ed resource amount or counts of `Running` pods matching `selector`
+- `calculatedThreshold` shows the calculated threshold value which takes `temporalThresholdOverride` into account.  
+- `throttled` shows the throttle is active for each resource requests or resource counts.
 
 ```yaml
 # example/throttle.yaml
@@ -121,6 +124,57 @@ status:
     resourceRequests:
       cpu: 300m
 ```
+
+### Temporal Threshold Overrides
+
+User sometimes increase/decrease threshold value.  You can edit `spec.threshold` directly.  However, what if the increase/decrease is expected in limited term??  Temporal threshold overrides can solve it.
+
+Temporal threshold overrides provides declarative threshold override.  It means, override automatically activated when the term started and expired automatically when the term finished.  It would greatly reduces operational tasks.
+ 
+`spec` can have `temporalThresholdOverrides` like this:
+
+```yaml
+apiVersion: schedule.k8s.everpeace.github.com/v1alpha1
+kind: Throttle
+metadata:
+  name: t1
+spec:
+  threshold:
+    resourceCounts:
+      pod: 3 
+    resourceRequests: 
+      cpu: 200m
+      memory: "1Gi"
+      nvidia.com/gpu: "2"
+    temporalThresholdOverrides:
+    # begin/end should be a datetime string in RFC3339
+    # each entry is active when t in [begin, end]
+    # if multiple entries are active all active threshold override 
+    # will be merged (first override lives for each resource count/request).
+    - begin: 2019-02-01T00:00:00+09:00
+      end: 2019-03-01T00:00:00+09:00
+      threshold:
+        resourceRequests:
+          cpu: "5"
+    - begin: 2019-02-15T00:00:00+09:00
+      end: 2019-03-01T00:00:00+09:00
+      threshold:
+        resourceRequests:
+          cpu: "1"
+          memory: "8Gi"
+```
+
+`temporalTresholds` can define multiple override entries.  Each entry is active when current time is in `[begin, end]` (inclusive on both end).  If multiple entries are active, all active overrides will be merged. First override lives for each resource count/request.  For above example, if current time was '2019-02-16T00:00:00+09:00', both overrides are active and merged threshold will be:
+
+```yaml
+resourceCounts:    # this is not overridden 
+  pod: 3
+resourceRequests:
+  cpu: "5"         # from temporalThresholdOverrides[0]
+  memory: "8Gi"    # from temporalThresholdOverrides[1]
+```
+
+These calculated threshold value are recoreded in `staus.calculatedThrottle` field.  __The field matters when deciding throttle is active or not.__
 
 ## How `kube-throttler` works
 I describe a simple scenario here.  _Note that this scenario holds with `ClusterThrottle`.  The only difference between them is `ClusterThrottles` can targets pods in multiple namespaces but `Throttle` can targets pods only in the same namespace with it._
@@ -306,12 +360,16 @@ Events:
 | throttle_status_throttled_resourceCounts | resourceCounts of the throttle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`throttle_status_throttled_resourceRequests{name="t1", namespace="default",uuid="...",resource="pod"} 1.0`     
 | throttle_status_used_resourceRequests | used amount of resource requests of the throttle |`throttle_status_used_resourceRequests{name="t1", namespace="default",uuid="...",resource="cpu"} 200`     
 | throttle_status_used_resourceCounts | used resource counts of the throttle |`throttle_status_used_resourceCounts{name="t1", namespace="default",uuid="...",resource="pod"} 2`     
+| throttle_status_calculated_threshold_resourceRequests | calculated threshold on specific resourceRequests of the throttle |`throttle_status_calculated_threshold_resourceRequests{name="t1", namespace="default",uuid="...",resource="pod"} 2`     
+| throttle_status_calculated_threshold_resourceCounts | calculated threshold on specific resourceCounts of the throttle |`throttle_status_calculated_threshold_resourceCounts{name="t1", namespace="default",uuid="...",resource="cpu"} 200`     
 | throttle_spec_threshold_resourceRequests | threshold on specific resourceRequests of the throttle |`throttle_spec_threshold_resourceRequests{name="t1", namespace="default",uuid="...",resource="pod"} 2`     
 | throttle_spec_threshold_resourceCounts | threshold on specific resourceCounts of the throttle |`throttle_spec_threshold_resourceCounts{name="t1", namespace="default",uuid="...",resource="cpu"} 200`     
 | clusterthrottle_status_throttled_resourceRequests | resourceRequests of the clusterthrottle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`clusterthrottle_status_throttled_resourceRequests{name="clt1",uuid="...",resource="cpu"} 1.0`     
 | clusterthrottle_status_throttled_resourceCounts | resourceCounts of the clusterthrottle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`clusterthrottle_status_throttled_resourceRequests{name="clt1",uuid="...",resource="pod"} 1.0`     
 | clusterthrottle_status_used_resourceRequests | used amount of resource requests of the clusterthrottle |`clusterthrottle_status_used_resourceRequests{name="t1",uuid="...",resource="cpu"} 200`     
 | clusterthrottle_status_used_resourceCounts | used resource counts of the clusterthrottle |`clusterthrottle_status_used_resourceCounts{name="clt1",uuid="...",resource="pod"} 2`     
+| clusterthrottle_status_calculated_threshold_resourceRequests | calculated threshold on specific resourceRequests of the clusterthrottle |`clusterthrottle_status_calculated_threshold_resourceRequests{name="t1",uuid="...",resource="pod"} 2`     
+| clusterthrottle_status_calculated_threshold_resourceCounts | calculated threshold on specific resourceCounts of the clusterthrottle |`clusterthrottle_status_calculated_threshold_resourceCounts{name="t1",uuid="...",resource="cpu"} 200`     
 | clusterthrottle_spec_threshold_resourceRequests | threshold on specific resourceRequests of the clusterthrottle |`clusterthrottle_spec_threshold_resourceRequests{name="t1",uuid="...",resource="pod"} 2`     
 | clusterthrottle_spec_threshold_resourceCounts | threshold on specific resourceCounts of the clusterthrottle |`clusterthrottle_spec_threshold_resourceCounts{name="t1",uuid="...",resource="cpu"} 200`     
 
@@ -329,6 +387,12 @@ kubectl create -f prometheus/servicemonitor.yaml
 Apache License 2.0
 
 # Change Logs
+
+## `0.4.1`
+
+- Added
+  - `temporalThresholdOverrides` introduced.  User now can define declarative threshold override with finite term by using this.  `kube-throttler` activates/deactivates those threshold overrides.
+  - `status.calculatedThreshold` introduced.  This fields shows the latest calculated threshold. The field matters when deciding throttle is active or not. `[cluster]throttle_status_calculated_threshold` are also introduced.
 
 ## `0.4.0`
 
