@@ -31,10 +31,11 @@ import com.github.everpeace.k8s.throttler.metrics.{
   ThrottleControllerMetrics
 }
 import play.api.libs.json._
+import skuber._
 import skuber.ResourceSpecification.Subresources
 import skuber.api.client.EventType
-import skuber.json.format.{podFormat => _, ListResourceFormat, namespaceFormat}
-import skuber.{ResourceSpecification, _}
+import skuber.api.client.LoggingContext._
+import skuber.json.format.{podFormat, podListFmt, namespaceFormat, namespaceListFmt}
 
 import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
@@ -51,7 +52,6 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
   implicit private val system = context.system
   implicit private val mat    = ActorMaterializer()
   implicit private val ec     = context.dispatcher
-  implicit val nslistFmt      = ListResourceFormat[Namespace]
 
   private val k8sMap: mutable.Map[String, K8SRequestContext] = mutable.Map(k8s.namespaceName -> k8s)
 
@@ -80,14 +80,9 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
       namespaceVersion  <- cache.namespaces.init
       clthrottleVersion <- cache.clusterThrottles.init
       throttleVersion   <- cache.throttles.init
-      podVersion <- cache.pods.init(k8s,
-                                    ec,
-                                    Skuber2_0_12_Fix.fixedPodFormat,
-                                    Pod.poDef,
-                                    ListResourceFormat[Pod](Skuber2_0_12_Fix.fixedPodFormat),
-                                    Pod.poListDef)
-      _ <- reconcileAllClusterThrottles()
-      _ <- reconcileAllThrottles()
+      podVersion        <- cache.pods.init
+      _                 <- reconcileAllClusterThrottles()
+      _                 <- reconcileAllThrottles()
     } yield (namespaceVersion, clthrottleVersion, throttleVersion, podVersion)
 
     syncThrottleAndPods.onComplete {
@@ -112,7 +107,8 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
           bufSize = config.watchBufferSize
         )(
           implicitly[Format[Namespace]],
-          clusterScopedResourceDefinition[Namespace]
+          clusterScopedResourceDefinition[Namespace],
+          lc
         )
         .map(NamespaceWatchEvent)
       // watch clusterthrottle
@@ -122,7 +118,8 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
           bufSize = config.watchBufferSize
         )(
           implicitly[Format[v1alpha1.ClusterThrottle]],
-          clusterScopedResourceDefinition[v1alpha1.ClusterThrottle]
+          clusterScopedResourceDefinition[v1alpha1.ClusterThrottle],
+          lc
         )
         .map(ClusterThrottleWatchEvent)
       // watch throttle in all namespaces
@@ -132,7 +129,8 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
           bufSize = config.watchBufferSize
         )(
           implicitly[Format[v1alpha1.Throttle]],
-          clusterScopedResourceDefinition[v1alpha1.Throttle]
+          clusterScopedResourceDefinition[v1alpha1.Throttle],
+          lc
         )
         .map(ThrottleWatchEvent)
       // watch pods in all namespaces
@@ -141,8 +139,9 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
           sinceResourceVersion = podVersion,
           bufSize = config.watchBufferSize
         )(
-          Skuber2_0_12_Fix.fixedPodFormat,
-          clusterScopedResourceDefinition[Pod]
+          implicitly[Format[Pod]],
+          clusterScopedResourceDefinition[Pod],
+          lc
         )
         .map(PodWatchEvent)
       // todo: use RestartSource to make the actor more stable.
@@ -550,8 +549,8 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
         // extract resource list in all namespaces
         resourceList <- k8s.list[ListResource[R]]()(
                          implicitly[Format[ListResource[R]]],
-                         clusterScopedResourceDefinition[ListResource[R]]
-                       )
+                         clusterScopedResourceDefinition[ListResource[R]],
+                         lc)
         latestResourceVersion = resourceList.metadata map {
           _.resourceVersion
         }

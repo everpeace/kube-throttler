@@ -19,15 +19,14 @@ package com.github.everpeace.k8s
 import org.scalatest.{FreeSpec, Matchers}
 import play.api.libs.json._
 import skuber._
+import skuber.json.format._
 import Pod.Affinity._
 import NodeAffinity.{RequiredDuringSchedulingIgnoredDuringExecution => Required}
 
-class Skuber2_0_12_FixSpec extends FreeSpec with Matchers {
+class Skuber2_1_0CanParseMatchFieldsSpec extends FreeSpec with Matchers {
 
-  "FixedNodeSelectorTermFormat" - {
-    import Skuber2_0_12_Fix.fixedNodeRequiredDuringSchedulingIgnoredDuringExecutionFormat
-
-    "can parse it only with matchFields but it is skipped" in {
+  "Skuber2_1_0" - {
+    "can parse nodeSelectorTerms properly (both matchFields and matchExpressions)" in {
       val termJson = Json.parse(
         """
           |{
@@ -42,7 +41,14 @@ class Skuber2_0_12_FixSpec extends FreeSpec with Matchers {
         """.stripMargin
       )
       val myTerm = Json.fromJson[Required](termJson).get
-      val term   = Required(nodeSelectorTerms = List(NodeSelectorTerm(List.empty)))
+      val term = Required(
+        nodeSelectorTerms = List(
+          NodeSelectorTerm(
+            List.empty,
+            NodeSelectorRequirements(
+              NodeSelectorRequirement("some-key", NodeSelectorOperator.In, List("some-value"))
+            )
+          )))
       myTerm shouldBe term
     }
 
@@ -64,9 +70,10 @@ class Skuber2_0_12_FixSpec extends FreeSpec with Matchers {
       val term = Required(
         nodeSelectorTerms = List(
           NodeSelectorTerm(
-            MatchExpressions(
-              MatchExpression("some-key", NodeSelectorOperator.In, List("some-value"))
-            )))
+            NodeSelectorRequirements(
+              NodeSelectorRequirement("some-key", NodeSelectorOperator.In, List("some-value"))
+            ))
+        )
       )
       myTerm shouldBe term
     }
@@ -94,9 +101,14 @@ class Skuber2_0_12_FixSpec extends FreeSpec with Matchers {
       val term = Required(
         nodeSelectorTerms = List(
           NodeSelectorTerm(
-            MatchExpressions(
-              MatchExpression("some-key", NodeSelectorOperator.In, List("some-value"))
-            )))
+            NodeSelectorRequirements(
+              NodeSelectorRequirement("some-key", NodeSelectorOperator.In, List("some-value"))
+            ),
+            NodeSelectorRequirements(
+              NodeSelectorRequirement("some-key", NodeSelectorOperator.In, List("some-value"))
+            )
+          )
+        )
       )
       myTerm shouldBe term
     }
