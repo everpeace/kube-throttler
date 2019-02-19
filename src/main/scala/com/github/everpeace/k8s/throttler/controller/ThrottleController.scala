@@ -448,6 +448,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
 
     case ClusterThrottleWatchEvent(e, at) if isClusterThrottleResponsible(e._object) =>
       log.info("detected clusterthrottle {} was {}", e._object.key, e._type)
+      val prev = cache.clusterThrottles.get(e._object.key)
       val updateOrRemoveCacheThen = e._type match {
         case EventType.DELETED =>
           cache.clusterThrottles.removeThen(e._object)(_)
@@ -455,7 +456,9 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
           cache.clusterThrottles.updateThen(e._object)(_)
       }
       updateOrRemoveCacheThen { clusterThrottle =>
-        updateClusterThrottleBecauseOf(clusterThrottle, at)
+        if (prev.isEmpty || prev.get.spec != clusterThrottle.spec) {
+          updateClusterThrottleBecauseOf(clusterThrottle, at)
+        }
         e._type match {
           case EventType.DELETED =>
             log.info(
@@ -475,6 +478,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
 
     case ThrottleWatchEvent(e, at) if isThrottleResponsible(e._object) =>
       log.info("detected throttle {} was {}", e._object.key, e._type)
+      val prev = cache.throttles.get(e._object.key)
       val updateOrRemoveCacheThen = e._type match {
         case EventType.DELETED =>
           cache.throttles.removeThen(e._object)(_)
@@ -482,7 +486,9 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
           cache.throttles.updateThen(e._object)(_)
       }
       updateOrRemoveCacheThen { throttle =>
-        updateThrottleBecauseOf(throttle, at)
+        if (prev.isEmpty || prev.get.spec != throttle.spec) {
+          updateThrottleBecauseOf(throttle, at)
+        }
         e._type match {
           case EventType.DELETED =>
             log.info(
@@ -636,6 +642,10 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
     }
 
     def toImmutable: Map[String, Set[R]] = map.toMap.mapValues(m => m.values.toSet)
+
+    def get(key: ObjectKey): Option[R] = {
+      map.get(key._1).flatMap(_.get(key))
+    }
   }
 }
 
