@@ -33,17 +33,6 @@ package object v1 {
       error: Option[String] = None)
 
   object Implicits {
-    import com.github.everpeace.k8s.Skuber2_0_12_Fix
-    // kube-scheduler doesn't send 'apiVersion' and 'kind' attributes
-    // on Pod, Node, NodeList
-    implicit val podFormat: Format[Pod] = (
-      (JsPath \ "metadata").lazyFormat[ObjectMeta](objectMetaFormat) and
-        (JsPath \ "spec").formatNullable[Pod.Spec](Skuber2_0_12_Fix.fixedPodSpecFormat) and
-        (JsPath \ "status").formatNullable[Pod.Status]
-    )(
-      Pod("Pod", "v1", _, _, _),
-      unlift((p: Pod) => Option(p.metadata, p.spec, p.status))
-    )
     implicit val nodeFormat: Format[Node] = (
       (JsPath \ "metadata").lazyFormat[ObjectMeta](objectMetaFormat) and
         (JsPath \ "spec").formatNullable[Node.Spec] and
