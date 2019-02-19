@@ -16,6 +16,7 @@
 
 package com.github.everpeace.k8s.throttler.metrics
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
+import com.github.everpeace.k8s.throttler.crd.v1alpha1.CalculatedThreshold
 
 trait ThrottleControllerMetrics extends MetricsBase {
   self: {
@@ -26,6 +27,8 @@ trait ThrottleControllerMetrics extends MetricsBase {
   } =>
 
   def resetThrottleMetric(throttle: v1alpha1.Throttle): Unit = {
+    import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits.ResourceAmountSyntax
+
     val zeroSpec = throttle.spec.copy(
       threshold = zeroResourceAmount(throttle.spec.threshold)
     )
@@ -33,7 +36,16 @@ trait ThrottleControllerMetrics extends MetricsBase {
       st =>
         st.copy(
           throttled = falseIsResourceAmountThrottled(st.throttled),
-          used = zeroResourceAmount(st.used)
+          used = zeroResourceAmount(st.used),
+          calculatedThreshold = Option(CalculatedThreshold(
+            zeroResourceAmount(
+              throttle.spec.temporalThresholdOverrides.foldRight(throttle.spec.threshold) {
+                (o, acc) =>
+                  acc.merge(o.threshold)
+              }
+            ),
+            st.calculatedThreshold.map(_.calculatedAt).getOrElse(java.time.ZonedDateTime.now())
+          ))
       ))
     val zero = throttle.copy(
       spec = zeroSpec,
@@ -53,6 +65,11 @@ trait ThrottleControllerMetrics extends MetricsBase {
     throttle.status.foreach { status =>
       recordIsThrottledMetric("throttle.status.throttled", metadataTags, status.throttled)
       recordResourceAmountMetric("throttle.status.used", metadataTags, status.used)
+      status.calculatedThreshold.foreach { calculated =>
+        recordResourceAmountMetric("throttle.status.calculated.threshold",
+                                   metadataTags,
+                                   calculated.threshold)
+      }
     }
   }
 
