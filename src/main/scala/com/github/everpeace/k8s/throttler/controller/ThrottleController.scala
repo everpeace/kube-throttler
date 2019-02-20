@@ -84,16 +84,25 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
     super.preStart()
     log.info("starting ThrottleController actor (path = {})", self.path)
     val now = java.time.ZonedDateTime.now()
-    val syncThrottleAndPods = for {
-      namespaceVersion  <- cache.namespaces.init
-      clthrottleVersion <- cache.clusterThrottles.init
-      throttleVersion   <- cache.throttles.init
-      podVersion        <- cache.pods.init
-      _                 <- reconcileAllClusterThrottles(at = now)
-      _                 <- reconcileAllThrottles(at = now)
-    } yield (namespaceVersion, clthrottleVersion, throttleVersion, podVersion)
+    val syncAll = for {
+      // init cache
+      _ <- cache.namespaces.init
+      _ <- cache.clusterThrottles.init
+      _ <- cache.throttles.init
+      _ <- cache.pods.init
+      // reconcile all throttles/clthrottles
+      _ <- reconcileAllClusterThrottles(at = now)
+      _ <- reconcileAllThrottles(at = now)
+      // get the latest resource versions again to watch
+      nsVersion <- latestResourceList[Namespace].map(_.metadata.map(_.resourceVersion))
+      clthrottleVersion <- latestResourceList[v1alpha1.ClusterThrottle]
+                            .map(_.metadata.map(_.resourceVersion))
+      throttleVersion <- latestResourceList[v1alpha1.Throttle]
+                          .map(_.metadata.map(_.resourceVersion))
+      podVersion <- latestResourceList[Pod].map(_.metadata.map(_.resourceVersion))
+    } yield (nsVersion, clthrottleVersion, throttleVersion, podVersion)
 
-    syncThrottleAndPods.onComplete {
+    syncAll.onComplete {
       case scala.util.Success(v) =>
         val (namespaceVersion, clthrottleVersion, throttleVersion, podVersion) = v
         log.info(
@@ -122,7 +131,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
     }
 
     for {
-      (namespaceVersion, clthrottleVersion, throttleVersion, podVersion) <- syncThrottleAndPods
+      (namespaceVersion, clthrottleVersion, throttleVersion, podVersion) <- syncAll
       // watch namespace
       nsWatch = k8s
         .watchAllContinuously[Namespace](
@@ -587,6 +596,19 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
       reconcileClusterThrottlesWithFilter(f, fName, at)
   }
 
+  private def latestResourceList[R <: ObjectResource](
+      implicit
+      k8s: K8SRequestContext,
+      ec: ExecutionContext,
+      fmt: Format[R],
+      rd: ResourceDefinition[R],
+      listfmt: Format[ListResource[R]],
+      listrd: ResourceDefinition[ListResource[R]]
+    ): Future[skuber.ListResource[R]] =
+    k8s.list[ListResource[R]]()(implicitly[Format[ListResource[R]]],
+                                clusterScopedResourceDefinition[ListResource[R]],
+                                lc)
+
   private[controller] class ObjectResourceCache[R <: ObjectResource](
       val isResponsible: R => Boolean = (_: R) => true,
       val map: mutable.Map[String, mutable.Map[ObjectKey, R]] =
@@ -605,10 +627,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
       for {
         _ <- Future { log.info("syncing {} status", rd.spec.names.singular) }
         // extract resource list in all namespaces
-        resourceList <- k8s.list[ListResource[R]]()(
-                         implicitly[Format[ListResource[R]]],
-                         clusterScopedResourceDefinition[ListResource[R]],
-                         lc)
+        resourceList <- latestResourceList[R]
         latestResourceVersion = resourceList.metadata map {
           _.resourceVersion
         }

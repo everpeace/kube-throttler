@@ -388,6 +388,13 @@ Apache License 2.0
 
 # Change Logs
 
+## `0.5.1`
+
+- Fixed
+  - "too old resource version" on init reconciliation for clusters with large number of throttles/clusterthrottles
+- Changed
+  - log level for all the metrics changes is now debug.
+ 
 ## `0.5.0`
 
 - Added

@@ -55,7 +55,7 @@ trait MetricsBase {
 
     throttled.resourceRequests foreach { rq =>
       val _tags = sanitizeTagKeys(tags ++ resourceQuantityToTag(rq))
-      log.info(
+      log.debug(
         s"setting gauge '${statusRRGauge.name}{${_tags.values.mkString(",")}}' value with ${b2i(rq._2)}")
       statusRRGauge.refine(_tags).set(b2i(rq._2))
     }
@@ -65,7 +65,7 @@ trait MetricsBase {
       value <- rc.pod
     } yield {
       val _tags = sanitizeTagKeys(tags ++ resourceCountsTag("pod"))
-      log.info(
+      log.debug(
         s"setting gauge '${statusRCGauge.name}{${tags.values.mkString(",")}}' value with ${b2i(value)}")
       statusRCGauge.refine(_tags).set(b2i(value))
     }
