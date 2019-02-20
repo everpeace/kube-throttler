@@ -388,7 +388,7 @@ Apache License 2.0
 
 # Change Logs
 
-## `0.4.1`
+## `0.5.0`
 
 - Added
   - `temporaryThresholdOverrides` introduced.  User now can define declarative threshold override with finite term by using this.  `kube-throttler` activates/deactivates those threshold overrides.
