@@ -65,7 +65,7 @@ spec:
                       type: integer
                 resourceRequests:
                   type: object
-            temporalThresholdOverrides:
+            temporaryThresholdOverrides:
               type: array
               items:
                 type: object
@@ -147,7 +147,7 @@ spec:
                       type: integer
                 resourceRequests:
                   type: object
-            temporalThresholdOverrides:
+            temporaryThresholdOverrides:
               type: array
               items:
                 type: object

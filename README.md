@@ -73,12 +73,12 @@ a `Throttle` custom resource defines three things:
 - threshold of 
   - resource amount of `request`-ed computational resource of the throttle
   - count of resources (currently only `pod` is supported)
-  - those can be overridden by `temporalThresholdOverride`.  Please refer to [below section](#temporal-threshold-override).
+  - those can be overridden by `temporaryThresholdOverride`.  Please refer to [below section](#temporary-threshold-override).
 
 And it also has `status` field. `status` field contains:
 
 - `used` shows the current total usage of `reauest`-ed resource amount or counts of `Running` pods matching `selector`
-- `calculatedThreshold` shows the calculated threshold value which takes `temporalThresholdOverride` into account.  
+- `calculatedThreshold` shows the calculated threshold value which takes `temporaryThresholdOverride` into account.  
 - `throttled` shows the throttle is active for each resource requests or resource counts.
 
 ```yaml
@@ -125,13 +125,13 @@ status:
       cpu: 300m
 ```
 
-### Temporal Threshold Overrides
+### Temporary Threshold Overrides
 
-User sometimes increase/decrease threshold value.  You can edit `spec.threshold` directly.  However, what if the increase/decrease is expected in limited term??  Temporal threshold overrides can solve it.
+User sometimes increase/decrease threshold value.  You can edit `spec.threshold` directly.  However, what if the increase/decrease is expected in limited term??  Temporary threshold overrides can solve it.
 
-Temporal threshold overrides provides declarative threshold override.  It means, override automatically activated when the term started and expired automatically when the term finished.  It would greatly reduces operational tasks.
+Temporary threshold overrides provides declarative threshold override.  It means, override automatically activated when the term started and expired automatically when the term finished.  It would greatly reduces operational tasks.
  
-`spec` can have `temporalThresholdOverrides` like this:
+`spec` can have `temporaryThresholdOverrides` like this:
 
 ```yaml
 apiVersion: schedule.k8s.everpeace.github.com/v1alpha1
@@ -146,7 +146,7 @@ spec:
       cpu: 200m
       memory: "1Gi"
       nvidia.com/gpu: "2"
-    temporalThresholdOverrides:
+    temporaryThresholdOverrides:
     # begin/end should be a datetime string in RFC3339
     # each entry is active when t in [begin, end]
     # if multiple entries are active all active threshold override 
@@ -164,14 +164,14 @@ spec:
           memory: "8Gi"
 ```
 
-`temporalTresholds` can define multiple override entries.  Each entry is active when current time is in `[begin, end]` (inclusive on both end).  If multiple entries are active, all active overrides will be merged. First override lives for each resource count/request.  For above example, if current time was '2019-02-16T00:00:00+09:00', both overrides are active and merged threshold will be:
+`temporaryTresholds` can define multiple override entries.  Each entry is active when current time is in `[begin, end]` (inclusive on both end).  If multiple entries are active, all active overrides will be merged. First override lives for each resource count/request.  For above example, if current time was '2019-02-16T00:00:00+09:00', both overrides are active and merged threshold will be:
 
 ```yaml
 resourceCounts:    # this is not overridden 
   pod: 3
 resourceRequests:
-  cpu: "5"         # from temporalThresholdOverrides[0]
-  memory: "8Gi"    # from temporalThresholdOverrides[1]
+  cpu: "5"         # from temporaryThresholdOverrides[0]
+  memory: "8Gi"    # from temporaryThresholdOverrides[1]
 ```
 
 These calculated threshold value are recoreded in `staus.calculatedThrottle` field.  __The field matters when deciding throttle is active or not.__
@@ -391,7 +391,7 @@ Apache License 2.0
 ## `0.4.1`
 
 - Added
-  - `temporalThresholdOverrides` introduced.  User now can define declarative threshold override with finite term by using this.  `kube-throttler` activates/deactivates those threshold overrides.
+  - `temporaryThresholdOverrides` introduced.  User now can define declarative threshold override with finite term by using this.  `kube-throttler` activates/deactivates those threshold overrides.
   - `status.calculatedThreshold` introduced.  This fields shows the latest calculated threshold. The field matters when deciding throttle is active or not. `[cluster]throttle_status_calculated_threshold` are also introduced.
 
 ## `0.4.0`

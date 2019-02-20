@@ -1,15 +1,12 @@
 apiVersion: schedule.k8s.everpeace.github.com/v1alpha1
-kind: ClusterThrottle
+kind: Throttle
 metadata:
-  name: ct1
+  name: t1
 spec:
   throttlerName: kube-throttler
   selector:
     selectorTerms:
-      - namespaceSelector:
-          matchLabels:
-            throttle: 'true'
-        podSelector:
+      - podSelector:
           matchLabels:
             throttle: t1
   threshold:
@@ -18,7 +15,7 @@ spec:
     resourceRequests:
       cpu: 200m
       memory: 1Gi
-  temporalThresholdOverrides:
+  temporaryThresholdOverrides:
     - begin: 2019-02-01T00:00:00+09:00
       end: 2019-03-01T00:00:00+09:00
       threshold:

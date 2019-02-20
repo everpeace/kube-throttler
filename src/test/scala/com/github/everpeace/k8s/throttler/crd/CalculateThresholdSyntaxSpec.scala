@@ -18,7 +18,7 @@ package com.github.everpeace.k8s.throttler.crd
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.{
   ResourceAmount,
   ResourceCount,
-  TemporalThresholdOverride
+  TemporaryThresholdOverride
 }
 import org.scalatest.{FreeSpec, Matchers}
 import skuber.Resource.Quantity
@@ -37,12 +37,12 @@ class CalculateThresholdSyntaxSpec extends FreeSpec with Matchers {
 
   val at = java.time.ZonedDateTime.parse("2019-03-01T00:00:00+09:00")
 
-  def activeOverride(ra: ResourceAmount) = TemporalThresholdOverride(
+  def activeOverride(ra: ResourceAmount) = TemporaryThresholdOverride(
     begin = at.minusDays(1),
     end = at.plusDays(1),
     ra
   )
-  def inactiveOverride(ra: ResourceAmount) = TemporalThresholdOverride(
+  def inactiveOverride(ra: ResourceAmount) = TemporaryThresholdOverride(
     begin = at.plusDays(1),
     end = at.plusDays(2),
     ra

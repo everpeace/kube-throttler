@@ -39,7 +39,7 @@ trait ClusterThrottleControllerMetrics extends MetricsBase {
           used = zeroResourceAmount(st.used),
           calculatedThreshold = Option(CalculatedThreshold(
             zeroResourceAmount(
-              clthrottle.spec.temporalThresholdOverrides.foldRight(clthrottle.spec.threshold) {
+              clthrottle.spec.temporaryThresholdOverrides.foldRight(clthrottle.spec.threshold) {
                 (o, acc) =>
                   acc.merge(o.threshold)
               }

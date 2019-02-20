@@ -18,18 +18,18 @@ package com.github.everpeace.k8s.throttler.crd
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.{
   ResourceAmount,
   ResourceCount,
-  TemporalThresholdOverride
+  TemporaryThresholdOverride
 }
 import org.scalatest.{FreeSpec, Matchers}
 import play.api.libs.json.Json
 
 import java.time.{ZonedDateTime, Instant, ZoneOffset}
 
-class TemporalThresholdOverrideSpec extends FreeSpec with Matchers with v1alpha1.CommonJsonFormat {
+class TemporaryThresholdOverrideSpec extends FreeSpec with Matchers with v1alpha1.CommonJsonFormat {
   val amount = ResourceAmount(resourceCounts = Option(ResourceCount(Option(1))))
   val epoch  = ZonedDateTime.ofInstant(Instant.ofEpochSecond(0), ZoneOffset.UTC)
 
-  "TemporalThresholdOverrideFormat" - {
+  "TemporaryThresholdOverrideFormat" - {
     "should parse ISO-like (RFC3339-like) timestamp" in {
       val json = Json.parse("""
           |{
@@ -42,7 +42,7 @@ class TemporalThresholdOverrideSpec extends FreeSpec with Matchers with v1alpha1
           |  }
           |}
         """.stripMargin)
-      val obj = new TemporalThresholdOverride(
+      val obj = new TemporaryThresholdOverride(
         "2019-02-01T00:00:00+09:00",
         ZonedDateTime.parse("2019-02-01T00:00:00+09:00"),
         "2019-02-01T00:00:00+09:00",
@@ -51,7 +51,7 @@ class TemporalThresholdOverrideSpec extends FreeSpec with Matchers with v1alpha1
         None
       )
 
-      json.validate[TemporalThresholdOverride].get shouldBe obj
+      json.validate[TemporaryThresholdOverride].get shouldBe obj
       Json.toJson(obj) shouldBe json
     }
 
@@ -67,7 +67,7 @@ class TemporalThresholdOverrideSpec extends FreeSpec with Matchers with v1alpha1
           |  }
           |}
         """.stripMargin)
-      val obj = new TemporalThresholdOverride(
+      val obj = new TemporaryThresholdOverride(
         "malformed time",
         epoch,
         "malformed time",
@@ -77,15 +77,15 @@ class TemporalThresholdOverrideSpec extends FreeSpec with Matchers with v1alpha1
           "begin: Text 'malformed time' could not be parsed at index 0, end: Text 'malformed time' could not be parsed at index 0")
       )
 
-      json.validate[TemporalThresholdOverride].get shouldBe obj
+      json.validate[TemporaryThresholdOverride].get shouldBe obj
       Json.toJson(obj) shouldBe json
     }
 
-    "TemporalThresholdOverrideSyntax" - {
+    "TemporaryThresholdOverrideSyntax" - {
       import v1alpha1.Implicits._
 
       "isActiveAt should not return active at anytime when parse error" in {
-        val ovrd = TemporalThresholdOverride("malformed", "2019-02-01T00:00:00+09:00", amount)
+        val ovrd = TemporaryThresholdOverride("malformed", "2019-02-01T00:00:00+09:00", amount)
 
         ovrd.begin shouldBe epoch
         ovrd.end shouldBe java.time.ZonedDateTime.parse("2019-02-01T00:00:00+09:00")
@@ -95,9 +95,9 @@ class TemporalThresholdOverrideSpec extends FreeSpec with Matchers with v1alpha1
 
       "isActiveAt should return active when at in [begin,end]" in {
         val ovrd =
-          TemporalThresholdOverride("2019-02-01T00:00:00+09:00",
-                                    "2019-02-01T00:01:00+09:00",
-                                    amount)
+          TemporaryThresholdOverride("2019-02-01T00:00:00+09:00",
+                                     "2019-02-01T00:01:00+09:00",
+                                     amount)
 
         ovrd.isActiveAt(java.time.ZonedDateTime.parse("2019-01-31T23:59:59+09:00")) shouldBe false
         ovrd.isActiveAt(java.time.ZonedDateTime.parse("2019-02-01T00:00:00+09:00")) shouldBe true
@@ -108,12 +108,12 @@ class TemporalThresholdOverrideSpec extends FreeSpec with Matchers with v1alpha1
 
       "collectParseError should collect parse error string" in {
         val ovrdsNg = List(
-          TemporalThresholdOverride("malformed", "2019-02-01T00:00:00+09:00", amount),
-          TemporalThresholdOverride("2019-02-01T00:00:00+09:00",
-                                    "2019-02-01T00:00:00+09:00",
-                                    amount),
-          TemporalThresholdOverride("2019-02-01T00:00:00+09:00", "malformed", amount),
-          TemporalThresholdOverride("malformed", "malformed", amount)
+          TemporaryThresholdOverride("malformed", "2019-02-01T00:00:00+09:00", amount),
+          TemporaryThresholdOverride("2019-02-01T00:00:00+09:00",
+                                     "2019-02-01T00:00:00+09:00",
+                                     amount),
+          TemporaryThresholdOverride("2019-02-01T00:00:00+09:00", "malformed", amount),
+          TemporaryThresholdOverride("malformed", "malformed", amount)
         )
         ovrdsNg.collectParseError() shouldBe List(
           "[0]: begin: Text 'malformed' could not be parsed at index 0",
@@ -122,12 +122,12 @@ class TemporalThresholdOverrideSpec extends FreeSpec with Matchers with v1alpha1
         )
 
         val ovrdOk = List(
-          TemporalThresholdOverride("2019-02-01T00:00:00+09:00",
-                                    "2019-02-01T00:00:00+09:00",
-                                    amount),
-          TemporalThresholdOverride("2019-02-01T00:00:00+09:00",
-                                    "2019-02-01T00:00:00+09:00",
-                                    amount)
+          TemporaryThresholdOverride("2019-02-01T00:00:00+09:00",
+                                     "2019-02-01T00:00:00+09:00",
+                                     amount),
+          TemporaryThresholdOverride("2019-02-01T00:00:00+09:00",
+                                     "2019-02-01T00:00:00+09:00",
+                                     amount)
         )
         ovrdOk.collectParseError() shouldBe List.empty
       }

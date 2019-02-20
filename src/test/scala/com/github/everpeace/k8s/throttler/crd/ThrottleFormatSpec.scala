@@ -60,7 +60,7 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
            |        "nvidia.com/gpu": "10"
            |      }
            |    },
-           |    "temporalThresholdOverrides": [{
+           |    "temporaryThresholdOverrides": [{
            |      "begin": "2019-02-01T00:00:00+09:00",
            |      "end": "2019-03-01T00:00:00+09:00",
            |      "threshold": {
@@ -128,7 +128,7 @@ class ThrottleFormatSpec extends FreeSpec with Matchers {
                 "nvidia.com/gpu" -> Quantity("10")
               )
             ),
-            temporalThresholdOverrides = List(v1alpha1.TemporalThresholdOverride(
+            temporaryThresholdOverrides = List(v1alpha1.TemporaryThresholdOverride(
               begin = ZonedDateTime.parse("2019-02-01T00:00:00+09:00"),
               end = ZonedDateTime.parse("2019-03-01T00:00:00+09:00"),
               threshold = ResourceAmount(
