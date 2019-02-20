@@ -39,7 +39,7 @@ trait ThrottleControllerMetrics extends MetricsBase {
           used = zeroResourceAmount(st.used),
           calculatedThreshold = Option(CalculatedThreshold(
             zeroResourceAmount(
-              throttle.spec.temporalThresholdOverrides.foldRight(throttle.spec.threshold) {
+              throttle.spec.temporaryThresholdOverrides.foldRight(throttle.spec.threshold) {
                 (o, acc) =>
                   acc.merge(o.threshold)
               }

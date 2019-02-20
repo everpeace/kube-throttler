@@ -516,8 +516,8 @@ class ClusterThrottleControllerLogicSpec
               threshold = ResourceAmount(
                 resourceRequests = Map("s" -> Quantity("30"))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.minusDays(1),
                   end = at.plusDays(1),
                   ResourceAmount(
@@ -539,8 +539,8 @@ class ClusterThrottleControllerLogicSpec
               threshold = ResourceAmount(
                 resourceRequests = Map("s" -> Quantity("3"))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.plusDays(1),
                   end = at.plusDays(2),
                   ResourceAmount(
@@ -616,8 +616,8 @@ class ClusterThrottleControllerLogicSpec
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("20"), "s" -> Quantity("30"))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.minusDays(1),
                   end = at.plusDays(1),
                   ResourceAmount(
@@ -639,8 +639,8 @@ class ClusterThrottleControllerLogicSpec
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.plusDays(1),
                   end = at.plusDays(2),
                   ResourceAmount(
@@ -718,8 +718,8 @@ class ClusterThrottleControllerLogicSpec
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("10"))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.minusDays(1),
                   end = at.plusDays(1),
                   ResourceAmount(
@@ -741,8 +741,8 @@ class ClusterThrottleControllerLogicSpec
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("1"))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.plusDays(1),
                   end = at.plusDays(2),
                   ResourceAmount(
@@ -820,8 +820,8 @@ class ClusterThrottleControllerLogicSpec
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("30"))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.minusDays(1),
                   end = at.plusDays(1),
                   ResourceAmount(
@@ -843,8 +843,8 @@ class ClusterThrottleControllerLogicSpec
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("3"))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.plusDays(1),
                   end = at.plusDays(2),
                   ResourceAmount(
@@ -928,8 +928,8 @@ class ClusterThrottleControllerLogicSpec
                     pod = Option(10)
                   )),
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.minusDays(1),
                   end = at.plusDays(1),
                   ResourceAmount(
@@ -957,8 +957,8 @@ class ClusterThrottleControllerLogicSpec
                     pod = Option(1)
                   )),
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.plusDays(1),
                   end = at.plusDays(2),
                   ResourceAmount(
@@ -1055,8 +1055,8 @@ class ClusterThrottleControllerLogicSpec
                     pod = Option(20)
                   )),
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.minusDays(1),
                   end = at.plusDays(1),
                   ResourceAmount(
@@ -1084,8 +1084,8 @@ class ClusterThrottleControllerLogicSpec
                     pod = Option(2)
                   ))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.plusDays(1),
                   end = at.plusDays(2),
                   ResourceAmount(
@@ -1163,8 +1163,8 @@ class ClusterThrottleControllerLogicSpec
                     pod = Option(1)
                   )),
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   "malformat",
                   "malformat",
                   ResourceAmount(

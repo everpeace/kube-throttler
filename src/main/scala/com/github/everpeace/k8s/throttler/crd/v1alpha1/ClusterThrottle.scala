@@ -38,7 +38,7 @@ object ClusterThrottle {
       throttlerName: String,
       selector: Selector,
       threshold: ResourceAmount,
-      temporalThresholdOverrides: List[TemporalThresholdOverride] = List.empty)
+      temporaryThresholdOverrides: List[TemporaryThresholdOverride] = List.empty)
 
   case class Selector(selectorTerms: List[SelectorItem])
   case class SelectorItem(
@@ -75,8 +75,8 @@ object ClusterThrottle {
       (JsPath \ "throttlerName").formatMaybeEmptyString(true) and
         (JsPath \ "selector").format[v1alpha1.ClusterThrottle.Selector] and
         (JsPath \ "threshold").format[ResourceAmount] and
-        (JsPath \ "temporalThresholdOverrides")
-          .formatMaybeEmptyList[v1alpha1.TemporalThresholdOverride]
+        (JsPath \ "temporaryThresholdOverrides")
+          .formatMaybeEmptyList[v1alpha1.TemporaryThresholdOverride]
     )(v1alpha1.ClusterThrottle.Spec.apply, unlift(v1alpha1.ClusterThrottle.Spec.unapply))
 
     implicit val clusterThrottleStatusFmt: Format[v1alpha1.ClusterThrottle.Status] =
@@ -107,7 +107,7 @@ object ClusterThrottle {
 
     implicit class ClusterThrottleSpecSyntax(spec: Spec) {
       def thresholdAt(at: skuber.Timestamp): ResourceAmount = {
-        (spec.threshold, spec.temporalThresholdOverrides).thresholdAt(at)
+        (spec.threshold, spec.temporaryThresholdOverrides).thresholdAt(at)
       }
 
       def statusFor(used: ResourceAmount, at: skuber.Timestamp): Status = {
@@ -115,11 +115,10 @@ object ClusterThrottle {
         v1alpha1.ClusterThrottle.Status(
           throttled = used.isThrottledFor(calculated, isThrottledOnEqual = true),
           used = used.filterEffectiveOn(spec.threshold),
-          calculatedThreshold =
-            Option(
-              CalculatedThreshold(calculated,
-                                  at,
-                                  spec.temporalThresholdOverrides.collectParseError()))
+          calculatedThreshold = Option(
+            CalculatedThreshold(calculated,
+                                at,
+                                spec.temporaryThresholdOverrides.collectParseError()))
         )
       }
     }

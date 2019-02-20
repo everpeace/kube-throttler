@@ -513,8 +513,8 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
               threshold = ResourceAmount(
                 resourceRequests = Map("s" -> Quantity("1"))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.minusDays(1),
                   end = at.plusDays(1),
                   threshold = ResourceAmount(
@@ -538,8 +538,8 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
               threshold = ResourceAmount(
                 resourceRequests = Map("s" -> Quantity("3"))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.plusDays(1),
                   end = at.plusDays(2),
                   threshold = ResourceAmount(
@@ -619,15 +619,15 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("200"), "s" -> Quantity("300"))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.minusDays(2),
                   end = at.plusDays(1),
                   ResourceAmount(
                     resourceRequests = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
                   )
                 ),
-                TemporalThresholdOverride(
+                TemporaryThresholdOverride(
                   begin = at.minusDays(1),
                   end = at.plusDays(2),
                   ResourceAmount(
@@ -652,8 +652,8 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.plusDays(1),
                   end = at.plusDays(2),
                   ResourceAmount(
@@ -731,8 +731,8 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("100"))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.minusDays(1),
                   end = at.plusDays(1),
                   ResourceAmount(
@@ -755,8 +755,8 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
               threshold = ResourceAmount(
                 resourceRequests = Map("r" -> Quantity("1"))
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.plusDays(1),
                   end = at.plusDays(2),
                   ResourceAmount(
@@ -927,8 +927,8 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
                     pod = Option(100)
                   )),
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.minusDays(1),
                   end = at.plusDays(1),
                   ResourceAmount(
@@ -956,8 +956,8 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
                     pod = Option(1)
                   )),
               ),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.plusDays(1),
                   end = at.plusDays(2),
                   ResourceAmount(
@@ -1048,8 +1048,8 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
                 resourceCounts = Option(ResourceCount(
                   pod = Option(200)
                 ))),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   begin = at.minusDays(1),
                   end = at.plusDays(1),
                   ResourceAmount(
@@ -1075,14 +1075,14 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
                 resourceCounts = Option(ResourceCount(
                   pod = Option(2)
                 ))),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(begin = at.plusDays(1),
-                                          end = at.plusDays(2),
-                                          ResourceAmount(
-                                            resourceCounts = Option(ResourceCount(
-                                              pod = Option(200)
-                                            ))
-                                          )))
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(begin = at.plusDays(1),
+                                           end = at.plusDays(2),
+                                           ResourceAmount(
+                                             resourceCounts = Option(ResourceCount(
+                                               pod = Option(200)
+                                             ))
+                                           )))
             )
           )
           .withNamespace("default")
@@ -1148,8 +1148,8 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
                 resourceCounts = Option(ResourceCount(
                   pod = Option(2)
                 ))),
-              temporalThresholdOverrides = List(
-                TemporalThresholdOverride(
+              temporaryThresholdOverrides = List(
+                TemporaryThresholdOverride(
                   "malformat",
                   "malformat",
                   ResourceAmount(

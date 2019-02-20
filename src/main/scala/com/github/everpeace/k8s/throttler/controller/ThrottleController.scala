@@ -100,17 +100,17 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
           s"latest throttle list resource version = $throttleVersion, latest clusterthrottle list resource version = $clthrottleVersion, latest pod list resource version = $podVersion, namespace list resource version = $namespaceVersion")
 
         log.info(
-          "starting periodic syncs for throttles/clusterthrottles with temporalThresholdOverrides")
+          "starting periodic syncs for throttles/clusterthrottles with temporaryThresholdOverrides")
 
-        cancelWhenRestart += system.scheduler.schedule(config.reconcileTemporalThresholdOverride,
-                                                       config.reconcileTemporalThresholdOverride) {
-          self ! ReconcileClusterThrottlesEvent(_.spec.temporalThresholdOverrides.nonEmpty,
-                                                "temporalThresholdOverridden")
+        cancelWhenRestart += system.scheduler.schedule(config.reconcileTemporaryThresholdInterval,
+                                                       config.reconcileTemporaryThresholdInterval) {
+          self ! ReconcileClusterThrottlesEvent(_.spec.temporaryThresholdOverrides.nonEmpty,
+                                                "temporaryThresholdOverridden")
         }
-        cancelWhenRestart += system.scheduler.schedule(config.reconcileTemporalThresholdOverride,
-                                                       config.reconcileTemporalThresholdOverride) {
-          self ! ReconcileThrottlesEvent(_.spec.temporalThresholdOverrides.nonEmpty,
-                                         "temporalThresholdOverridden")
+        cancelWhenRestart += system.scheduler.schedule(config.reconcileTemporaryThresholdInterval,
+                                                       config.reconcileTemporaryThresholdInterval) {
+          self ! ReconcileThrottlesEvent(_.spec.temporaryThresholdOverrides.nonEmpty,
+                                         "temporaryThresholdOverridden")
         }
 
       case scala.util.Failure(th) =>
