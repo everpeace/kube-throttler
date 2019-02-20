@@ -34,11 +34,18 @@ import com.github.everpeace.k8s._
 
 object Throttle {
 
-  case class Spec(throttlerName: String, selector: Selector, threshold: ResourceAmount)
+  case class Spec(
+      throttlerName: String,
+      selector: Selector,
+      threshold: ResourceAmount,
+      temporalThresholdOverrides: List[TemporalThresholdOverride] = List.empty)
   case class Selector(selectorTerms: List[SelectorItem])
   case class SelectorItem(podSelector: LabelSelector)
 
-  case class Status(throttled: IsResourceAmountThrottled, used: ResourceAmount)
+  case class Status(
+      throttled: IsResourceAmountThrottled,
+      used: ResourceAmount,
+      calculatedThreshold: Option[CalculatedThreshold] = None)
 
   val crd: CustomResourceDefinition = CustomResourceDefinition[v1alpha1.Throttle]
 
@@ -61,7 +68,9 @@ object Throttle {
     implicit val throttleSpecFmt: Format[v1alpha1.Throttle.Spec] = (
       (JsPath \ "throttlerName").formatMaybeEmptyString(true) and
         (JsPath \ "selector").format[v1alpha1.Throttle.Selector] and
-        (JsPath \ "threshold").format[ResourceAmount]
+        (JsPath \ "threshold").format[ResourceAmount] and
+        (JsPath \ "temporalThresholdOverrides")
+          .formatMaybeEmptyList[v1alpha1.TemporalThresholdOverride]
     )(v1alpha1.Throttle.Spec.apply, unlift(v1alpha1.Throttle.Spec.unapply))
 
     implicit val throttleStatusFmt: Format[v1alpha1.Throttle.Status] =
@@ -83,10 +92,22 @@ object Throttle {
     }
 
     implicit class ThrottleSpecSyntax(spec: Spec) {
-      def statusFor(used: ResourceAmount): Status = v1alpha1.Throttle.Status(
-        throttled = used.isThrottledFor(spec.threshold, isThrottledOnEqual = true),
-        used = used.filterEffectiveOn(spec.threshold)
-      )
+      def thresholdAt(at: skuber.Timestamp): ResourceAmount = {
+        (spec.threshold, spec.temporalThresholdOverrides).thresholdAt(at)
+      }
+
+      def statusFor(used: ResourceAmount, at: skuber.Timestamp): Status = {
+        val calculated = thresholdAt(at)
+        v1alpha1.Throttle.Status(
+          throttled = used.isThrottledFor(calculated, isThrottledOnEqual = true),
+          used = used.filterEffectiveOn(spec.threshold),
+          calculatedThreshold =
+            Option(
+              CalculatedThreshold(calculated,
+                                  at,
+                                  spec.temporalThresholdOverrides.collectParseError()))
+        )
+      }
     }
 
     implicit class ThrottleSyntax(throttle: Throttle) {
@@ -102,9 +123,12 @@ object Throttle {
       def isInsufficientFor(pod: Pod): Boolean = isTarget(pod) && {
         val podResourceAmount = pod.==>[ResourceAmount]
         val used              = throttle.status.map(_.used).getOrElse(zeroResourceAmount)
+        val threshold = (for {
+          st         <- throttle.status
+          calculated <- st.calculatedThreshold
+        } yield calculated.threshold).getOrElse(throttle.spec.threshold)
         val isThrottled =
-          (podResourceAmount add used).isThrottledFor(throttle.spec.threshold,
-                                                      isThrottledOnEqual = false)
+          (podResourceAmount add used).isThrottledFor(threshold, isThrottledOnEqual = false)
         isThrottled.resourceCounts.flatMap(_.pod).getOrElse(false) || isThrottled.resourceRequests
           .exists(_._2)
       }

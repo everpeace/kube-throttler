@@ -18,6 +18,21 @@ spec:
     - thrs
   subresources:
     status: {}
+  additionalPrinterColumns:
+    - name: throttled
+      JSONPath: .status.throttled
+      format: byte
+      type: string
+    - name: calculatedThreshold
+      JSONPath: .status.calculatedThreshold.threshold
+      format: byte
+      type: string
+      priority: 1
+    - name: calculatedAt
+      JSONPath: .status.calculatedThreshold.calculatedAt
+      format: date
+      type: date
+      priority: 1
   validation:
     # openAPIV3Schema is the schema for validating custom objects.
     openAPIV3Schema:
@@ -50,6 +65,33 @@ spec:
                       type: integer
                 resourceRequests:
                   type: object
+            temporalThresholdOverrides:
+              type: array
+              items:
+                type: object
+                required:
+                  - begin
+                  - end
+                  - threshold
+                properties:
+                  begin:
+                    description: start time string in RFC3339 for this override entry
+                    type: string
+                    minLength: 1
+                  end:
+                    description: end time string in RFC3339 for this override entry
+                    type: string
+                    minLength: 1
+                  threshold:
+                    type: object
+                    properties:
+                      resourceCounts:
+                        type: object
+                        properties:
+                          pod:
+                            type: integer
+                      resourceRequests:
+                        type: object
 ---
 apiVersion: apiextensions.k8s.io/v1beta1
 kind: CustomResourceDefinition
@@ -105,3 +147,30 @@ spec:
                       type: integer
                 resourceRequests:
                   type: object
+            temporalThresholdOverrides:
+              type: array
+              items:
+                type: object
+                required:
+                  - begin
+                  - end
+                  - threshold
+                properties:
+                  begin:
+                    description: start time string in RFC3339 for this override entry
+                    type: string
+                    minLength: 1
+                  end:
+                    description: end time string in RFC3339 for this override entry
+                    type: string
+                    minLength: 1
+                  threshold:
+                    type: object
+                    properties:
+                      resourceCounts:
+                        type: object
+                        properties:
+                          pod:
+                            type: integer
+                      resourceRequests:
+                        type: object

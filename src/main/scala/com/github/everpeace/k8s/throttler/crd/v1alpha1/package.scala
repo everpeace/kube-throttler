@@ -22,6 +22,8 @@ import com.github.everpeace.util.Injection.{==>, _}
 import skuber.Resource.ResourceList
 import skuber.{CustomResource, ListResource, Pod}
 
+import scala.util.Try
+
 package object v1alpha1 {
   type Throttle     = CustomResource[v1alpha1.Throttle.Spec, v1alpha1.Throttle.Status]
   type ThrottleList = ListResource[Throttle]
@@ -36,6 +38,73 @@ package object v1alpha1 {
 
   case class ResourceCount(pod: Option[Int] = None)
 
+  case class TemporalThresholdOverride(
+      beginString: String,
+      begin: skuber.Timestamp,
+      endString: String,
+      end: skuber.Timestamp,
+      threshold: ResourceAmount,
+      parseError: Option[String])
+
+  object TemporalThresholdOverride {
+    import java.time.{ZonedDateTime, Instant, ZoneOffset}
+    import java.time.format.DateTimeFormatter.{ISO_OFFSET_DATE_TIME, ISO_DATE_TIME}
+
+    private val epoch = ZonedDateTime.ofInstant(Instant.ofEpochSecond(0), ZoneOffset.UTC)
+    private def parse(str: String): Try[ZonedDateTime] =
+      Try(ZonedDateTime.parse(str, ISO_DATE_TIME))
+    private def format(zt: ZonedDateTime): String = zt.format(ISO_OFFSET_DATE_TIME)
+    private def errorMessage(t: Try[ZonedDateTime]): Option[String] =
+      t.failed.toOption.map(th => s"${th.getMessage()}")
+
+    def apply(
+        beginString: String,
+        endString: String,
+        threshold: ResourceAmount
+      ): v1alpha1.TemporalThresholdOverride = {
+      val parsedBegin = parse(beginString)
+      val parsedEnd   = parse(endString)
+      val message = {
+        val beginMesssage = errorMessage(parsedBegin).map(msg => s"begin: $msg")
+        val endMessage    = errorMessage(parsedEnd).map(msg => s"end: $msg")
+        val combined      = List(beginMesssage, endMessage).filter(_.nonEmpty).map(_.get).mkString(", ")
+        Option(combined).filter(_.trim.nonEmpty)
+      }
+
+      new TemporalThresholdOverride(
+        beginString,
+        parsedBegin.getOrElse(epoch),
+        endString,
+        parsedEnd.getOrElse(epoch),
+        threshold,
+        message
+      )
+    }
+
+    def apply(
+        begin: skuber.Timestamp,
+        end: skuber.Timestamp,
+        threshold: ResourceAmount
+      ): v1alpha1.TemporalThresholdOverride = {
+      new TemporalThresholdOverride(
+        format(begin),
+        begin,
+        format(end),
+        end,
+        threshold,
+        None
+      )
+    }
+
+    def unapply(arg: TemporalThresholdOverride): Option[(String, String, ResourceAmount)] =
+      Option(arg.beginString, arg.endString, arg.threshold)
+  }
+
+  case class CalculatedThreshold(
+      threshold: ResourceAmount,
+      calculatedAt: skuber.Timestamp,
+      messages: List[String] = List.empty)
+
   case class IsResourceCountThrottled(pod: Option[Boolean] = None)
 
   case class IsResourceAmountThrottled(
@@ -44,13 +113,28 @@ package object v1alpha1 {
 
   trait CommonJsonFormat {
     import play.api.libs.json._
-    import skuber.json.format.quantityFormat
+    import play.api.libs.functional.syntax._
+    import skuber.json.format.{quantityFormat, timeReads, timewWrites, maybeEmptyFormatMethods}
 
     implicit val resourceCountsFmt: Format[v1alpha1.ResourceCount] =
       Json.format[v1alpha1.ResourceCount]
 
-    implicit val resourceAmountFmt: Format[v1alpha1.ResourceAmount] =
-      Json.format[v1alpha1.ResourceAmount]
+    implicit val resourceAmountFmt: Format[v1alpha1.ResourceAmount] = (
+      (JsPath \ "resourceCounts").formatNullable[ResourceCount] and
+        (JsPath \ "resourceRequests").formatMaybeEmptyMap[skuber.Resource.Quantity]
+    )(ResourceAmount.apply, unlift(ResourceAmount.unapply))
+
+    implicit val temporalThrottleOverrideFmt: Format[v1alpha1.TemporalThresholdOverride] = (
+      (JsPath \ "begin").format[String] and
+        (JsPath \ "end").format[String] and
+        (JsPath \ "threshold").format[ResourceAmount]
+    )(TemporalThresholdOverride.apply, unlift(TemporalThresholdOverride.unapply))
+
+    implicit val calculatedThresholdFmt: Format[v1alpha1.CalculatedThreshold] = (
+      (JsPath \ "threshold").format[ResourceAmount] and
+        (JsPath \ "calculatedAt").format[skuber.Timestamp] and
+        (JsPath \ "messages").formatMaybeEmptyList[String]
+    )(v1alpha1.CalculatedThreshold.apply, unlift(v1alpha1.CalculatedThreshold.unapply))
 
     implicit val isResourceCountThrottledFmt: Format[v1alpha1.IsResourceCountThrottled] =
       Json.format[v1alpha1.IsResourceCountThrottled]
@@ -67,6 +151,21 @@ package object v1alpha1 {
             resourceCounts = Option(ResourceCount(pod = Option(1))),
             resourceRequests = pod.totalRequests
         )
+    }
+
+    implicit class CalculateThresholdSyntax(
+        tup: (ResourceAmount, List[TemporalThresholdOverride])) {
+      def thresholdAt(at: skuber.Timestamp): ResourceAmount = {
+        val threshold = tup._1
+        val overrides = tup._2
+        overrides.foldRight(threshold) { (thresholdOverride, calculated) =>
+          if (thresholdOverride.isActiveAt(at)) {
+            calculated.merge(thresholdOverride.threshold)
+          } else {
+            calculated
+          }
+        }
+      }
     }
 
     implicit class IsResourceAmountThrottledSyntax(throttled: IsResourceAmountThrottled) {
@@ -110,6 +209,18 @@ package object v1alpha1 {
         )
       }
 
+      def merge(rb: ResourceAmount): ResourceAmount = {
+        val mergedResoureCounts = rb.resourceCounts.orElse(ra.resourceCounts)
+        val mergedResourceRequests = rb.resourceRequests.foldLeft(ra.resourceRequests) {
+          (merged, req) =>
+            merged + req
+        }
+        ResourceAmount(
+          resourceCounts = mergedResoureCounts,
+          resourceRequests = mergedResourceRequests
+        )
+      }
+
       def filterEffectiveOn(threshold: ResourceAmount): ResourceAmount = {
         val used = ra
         v1alpha1.ResourceAmount(
@@ -126,6 +237,25 @@ package object v1alpha1 {
           resourceRequests = used.resourceRequests.filterKeys(threshold.resourceRequests.contains)
         )
       }
+    }
+
+    implicit class TemporalThresholdOverridesSyntax(ovrds: List[TemporalThresholdOverride]) {
+      def collectParseError(): List[String] = {
+        ovrds.zipWithIndex.foldRight(List.empty[String]) { (ovrd, msgs) =>
+          if (ovrd._1.parseError.nonEmpty) {
+            s"[${ovrd._2}]: ${ovrd._1.parseError.get}" :: msgs
+          } else {
+            msgs
+          }
+        }
+      }
+    }
+
+    implicit class TemporalThresholdOverrideSyntax(ovrd: TemporalThresholdOverride) {
+      def isActiveAt(at: skuber.Timestamp): Boolean =
+        ovrd.parseError.isEmpty &&
+          (ovrd.begin.isEqual(at) || ovrd.begin.isBefore(at)) &&
+          (at.isEqual(ovrd.end) || at.isBefore(ovrd.end))
     }
   }
 

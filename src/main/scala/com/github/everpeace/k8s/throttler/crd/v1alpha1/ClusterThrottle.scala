@@ -34,13 +34,21 @@ import skuber.{
 
 object ClusterThrottle {
 
-  case class Spec(throttlerName: String, selector: Selector, threshold: ResourceAmount)
+  case class Spec(
+      throttlerName: String,
+      selector: Selector,
+      threshold: ResourceAmount,
+      temporalThresholdOverrides: List[TemporalThresholdOverride] = List.empty)
+
   case class Selector(selectorTerms: List[SelectorItem])
   case class SelectorItem(
       podSelector: LabelSelector,
       namespaceSelector: Option[LabelSelector] = None)
 
-  case class Status(throttled: IsResourceAmountThrottled, used: ResourceAmount)
+  case class Status(
+      throttled: IsResourceAmountThrottled,
+      used: ResourceAmount,
+      calculatedThreshold: Option[CalculatedThreshold] = None)
 
   val crd: CustomResourceDefinition = CustomResourceDefinition[v1alpha1.ClusterThrottle]
 
@@ -66,7 +74,9 @@ object ClusterThrottle {
     implicit val clusterThrottleSpecFmt: Format[v1alpha1.ClusterThrottle.Spec] = (
       (JsPath \ "throttlerName").formatMaybeEmptyString(true) and
         (JsPath \ "selector").format[v1alpha1.ClusterThrottle.Selector] and
-        (JsPath \ "threshold").format[ResourceAmount]
+        (JsPath \ "threshold").format[ResourceAmount] and
+        (JsPath \ "temporalThresholdOverrides")
+          .formatMaybeEmptyList[v1alpha1.TemporalThresholdOverride]
     )(v1alpha1.ClusterThrottle.Spec.apply, unlift(v1alpha1.ClusterThrottle.Spec.unapply))
 
     implicit val clusterThrottleStatusFmt: Format[v1alpha1.ClusterThrottle.Status] =
@@ -96,10 +106,22 @@ object ClusterThrottle {
     }
 
     implicit class ClusterThrottleSpecSyntax(spec: Spec) {
-      def statusFor(used: ResourceAmount): Status = Status(
-        throttled = used.isThrottledFor(spec.threshold, isThrottledOnEqual = true),
-        used = used.filterEffectiveOn(spec.threshold)
-      )
+      def thresholdAt(at: skuber.Timestamp): ResourceAmount = {
+        (spec.threshold, spec.temporalThresholdOverrides).thresholdAt(at)
+      }
+
+      def statusFor(used: ResourceAmount, at: skuber.Timestamp): Status = {
+        val calculated = thresholdAt(at)
+        v1alpha1.ClusterThrottle.Status(
+          throttled = used.isThrottledFor(calculated, isThrottledOnEqual = true),
+          used = used.filterEffectiveOn(spec.threshold),
+          calculatedThreshold =
+            Option(
+              CalculatedThreshold(calculated,
+                                  at,
+                                  spec.temporalThresholdOverrides.collectParseError()))
+        )
+      }
     }
 
     implicit class ClusterThrottleSyntax(clthrottle: ClusterThrottle) {
@@ -115,9 +137,12 @@ object ClusterThrottle {
       def isInsufficientFor(pod: Pod, ns: Namespace): Boolean = isTarget(pod, ns) && {
         val podResourceAmount = pod.==>[ResourceAmount]
         val used              = clthrottle.status.map(_.used).getOrElse(zeroResourceAmount)
+        val threshold = (for {
+          st         <- clthrottle.status
+          calculated <- st.calculatedThreshold
+        } yield calculated.threshold).getOrElse(clthrottle.spec.threshold)
         val isThrottled =
-          (podResourceAmount add used).isThrottledFor(clthrottle.spec.threshold,
-                                                      isThrottledOnEqual = false)
+          (podResourceAmount add used).isThrottledFor(threshold, isThrottledOnEqual = false)
         isThrottled.resourceCounts.flatMap(_.pod).getOrElse(false) || isThrottled.resourceRequests
           .exists(_._2)
       }
