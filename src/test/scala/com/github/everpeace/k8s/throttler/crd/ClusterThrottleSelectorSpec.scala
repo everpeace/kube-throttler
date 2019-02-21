@@ -18,10 +18,7 @@ package com.github.everpeace.k8s.throttler.crd
 import org.scalatest.{FreeSpec, Matchers}
 import skuber.{LabelSelector, Namespace, ObjectMeta, Pod}
 
-class ClusterThrottleSelectorSpec
-    extends FreeSpec
-    with Matchers
-    with v1alpha1.ClusterThrottle.Implicits {
+class ClusterThrottleSelectorSpec extends FreeSpec with Matchers with v1alpha1.Syntax {
   def mkNs(name: String, labels: Map[String, String] = Map.empty) =
     Namespace.from(
       ObjectMeta(

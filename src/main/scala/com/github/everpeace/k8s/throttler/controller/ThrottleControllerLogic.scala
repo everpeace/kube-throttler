@@ -25,10 +25,10 @@ import cats.instances.list._
 
 trait ThrottleControllerLogic {
   def isThrottleAlreadyActiveFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean =
-    throttle.isAlreadyActiveFor(pod)
+    throttle.isAlreadyActiveFor(pod, throttle.isTarget(pod))
 
   def isThrottleInsufficientFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean =
-    throttle.isInsufficientFor(pod)
+    throttle.isInsufficientFor(pod, throttle.isTarget(pod))
 
   def calcNextThrottleStatuses(
       targetThrottles: Set[v1alpha1.Throttle],
@@ -44,9 +44,9 @@ trait ThrottleControllerLogic {
         .filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
         .toList
       runningTotal = runningPods.==>[List[ResourceAmount]].foldLeft(zeroResourceAmount)(_ add _)
-      nextStatus   = throttle.spec.statusFor(runningTotal, at)
+      nextStatus   = throttle.spec.statusFor(runningTotal, at)(v1alpha1.Throttle.Status.apply)
 
-      toUpdate <- if (throttle.needToUpdate(nextStatus)) {
+      toUpdate <- if (throttle.status.needToUpdateWith(nextStatus)) {
                    List(throttle.key -> nextStatus)
                  } else {
                    List.empty

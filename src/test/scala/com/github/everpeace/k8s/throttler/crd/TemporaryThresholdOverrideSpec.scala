@@ -25,7 +25,7 @@ import play.api.libs.json.Json
 
 import java.time.{ZonedDateTime, Instant, ZoneOffset}
 
-class TemporaryThresholdOverrideSpec extends FreeSpec with Matchers with v1alpha1.CommonJsonFormat {
+class TemporaryThresholdOverrideSpec extends FreeSpec with Matchers with v1alpha1.JsonFormat {
   val amount = ResourceAmount(resourceCounts = Option(ResourceCount(Option(1))))
   val epoch  = ZonedDateTime.ofInstant(Instant.ofEpochSecond(0), ZoneOffset.UTC)
 
