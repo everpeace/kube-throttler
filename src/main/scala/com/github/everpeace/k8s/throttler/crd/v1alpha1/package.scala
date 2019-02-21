@@ -50,7 +50,7 @@ package object v1alpha1 {
     import java.time.{ZonedDateTime, Instant, ZoneOffset}
     import java.time.format.DateTimeFormatter.{ISO_OFFSET_DATE_TIME, ISO_DATE_TIME}
 
-    private val epoch = ZonedDateTime.ofInstant(Instant.ofEpochSecond(0), ZoneOffset.UTC)
+    val epoch = ZonedDateTime.ofInstant(Instant.ofEpochSecond(0), ZoneOffset.UTC)
     private def parse(str: String): Try[ZonedDateTime] =
       Try(ZonedDateTime.parse(str, ISO_DATE_TIME))
     private def format(zt: ZonedDateTime): String = zt.format(ISO_OFFSET_DATE_TIME)
@@ -110,6 +110,29 @@ package object v1alpha1 {
   case class IsResourceAmountThrottled(
       resourceCounts: Option[IsResourceCountThrottled] = None,
       resourceRequests: Map[String, Boolean] = Map.empty)
+
+  trait Status {
+    def throttled: IsResourceAmountThrottled
+    def used: ResourceAmount
+    def calculatedThreshold: Option[CalculatedThreshold]
+  }
+
+  def needToUpdate(observedOpt: Option[v1alpha1.Status], desired: v1alpha1.Status): Boolean =
+    if (observedOpt.isEmpty) {
+      true
+    } else {
+      import v1alpha1.TemporaryThresholdOverride.epoch
+      val observedStatus = observedOpt.get
+      lazy val used      = observedStatus.used != desired.used
+      lazy val throttled = observedStatus.throttled != desired.throttled
+      lazy val threshold = (observedStatus.calculatedThreshold, desired.calculatedThreshold) match {
+        case (None, None)       => false
+        case (None, Some(_))    => true
+        case (Some(_), None)    => true
+        case (Some(o), Some(d)) => o.copy(calculatedAt = epoch) != d.copy(calculatedAt = epoch)
+      }
+      used || throttled || threshold
+    }
 
   trait CommonJsonFormat {
     import play.api.libs.json._

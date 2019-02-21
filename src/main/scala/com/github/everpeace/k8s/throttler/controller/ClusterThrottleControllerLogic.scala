@@ -60,7 +60,7 @@ trait ClusterThrottleControllerLogic {
       runningTotal = runningPods.==>[List[ResourceAmount]].foldLeft(zeroResourceAmount)(_ add _)
       nextStatus   = clthrottle.spec.statusFor(runningTotal, at)
 
-      toUpdate <- if (clthrottle.status != Option(nextStatus)) {
+      toUpdate <- if (clthrottle.needToUpdate(nextStatus)) {
                    List(clthrottle.key -> nextStatus)
                  } else {
                    List.empty

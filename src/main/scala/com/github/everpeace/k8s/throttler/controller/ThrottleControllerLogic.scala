@@ -46,7 +46,7 @@ trait ThrottleControllerLogic {
       runningTotal = runningPods.==>[List[ResourceAmount]].foldLeft(zeroResourceAmount)(_ add _)
       nextStatus   = throttle.spec.statusFor(runningTotal, at)
 
-      toUpdate <- if (throttle.status != Option(nextStatus)) {
+      toUpdate <- if (throttle.needToUpdate(nextStatus)) {
                    List(throttle.key -> nextStatus)
                  } else {
                    List.empty

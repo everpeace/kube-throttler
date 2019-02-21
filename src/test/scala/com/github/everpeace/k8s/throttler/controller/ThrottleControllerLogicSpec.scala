@@ -1195,6 +1195,51 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
         actual.size shouldBe 1
         actual.head shouldBe throttle.key -> expectedStatus
       }
+
+      "should return empty when next status is the same except for calculatedAt" in {
+        val pod = mkPod(
+          List(
+            resourceRequirements(Map("r" -> Quantity("2")))
+          )).copy(
+          metadata = commonMeta,
+          status = phase(Pod.Phase.Running)
+        )
+        val throttle = v1alpha1
+          .Throttle(
+            "t1",
+            v1alpha1.Throttle.Spec(
+              throttlerName = "kube-throttler",
+              selector = v1alpha1.Throttle.Selector(
+                List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+              threshold = ResourceAmount(
+                resourceRequests = Map("r" -> Quantity("1"))
+              )
+            )
+          )
+          .withNamespace("default")
+          .withName("t1")
+
+        val podsInNs = Set(pod)
+        val status = v1alpha1.Throttle.Status(
+          throttled = IsResourceAmountThrottled(
+            resourceRequests = Map("r" -> true)
+          ),
+          used = ResourceAmount(
+            resourceRequests = Map("r" -> Quantity("2"))
+          ),
+          calculatedThreshold = Option(
+            CalculatedThreshold(ResourceAmount(
+                                  resourceRequests = Map("r" -> Quantity("1"))
+                                ),
+                                at))
+        )
+
+        val actual =
+          calcNextThrottleStatuses(Set(throttle.withStatus(status)), podsInNs, at.plusMinutes(1))
+        actual shouldBe empty
+      }
     }
   }
 }

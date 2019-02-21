@@ -49,6 +49,7 @@ object ClusterThrottle {
       throttled: IsResourceAmountThrottled,
       used: ResourceAmount,
       calculatedThreshold: Option[CalculatedThreshold] = None)
+      extends v1alpha1.Status
 
   val crd: CustomResourceDefinition = CustomResourceDefinition[v1alpha1.ClusterThrottle]
 
@@ -132,6 +133,8 @@ object ClusterThrottle {
           throttled = st.throttled
         } yield throttled.isAlreadyThrottled(pod)).getOrElse(false)
       }
+
+      def needToUpdate(other: Status): Boolean = v1alpha1.needToUpdate(clthrottle.status, other)
 
       def isInsufficientFor(pod: Pod, ns: Namespace): Boolean = isTarget(pod, ns) && {
         val podResourceAmount = pod.==>[ResourceAmount]

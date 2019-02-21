@@ -1210,6 +1210,56 @@ class ClusterThrottleControllerLogicSpec
         actual.size shouldBe 1
         actual.head shouldBe clthrottle.key -> expectedStatus
       }
+
+      "should return empty when next status is the same except for calculatedAt" in {
+        val pod = mkPod(
+          List(
+            resourceRequirements(Map("r" -> Quantity("2")))
+          )).copy(
+          metadata = commonMeta,
+          status = phase(Pod.Phase.Running)
+        )
+        val clthrottle = v1alpha1
+          .ClusterThrottle(
+            "t1",
+            v1alpha1.ClusterThrottle.Spec(
+              throttlerName = "kube-throttler",
+              selector = v1alpha1.ClusterThrottle.Selector(
+                List(
+                  v1alpha1.ClusterThrottle.SelectorItem(
+                    LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+              threshold = ResourceAmount(
+                resourceRequests = Map("r" -> Quantity("1"))
+              )
+            )
+          )
+          .withName("t1")
+
+        val ns   = mkNs()
+        val nss  = Map(ns.name -> ns)
+        val pods = Set(pod)
+
+        val status = v1alpha1.ClusterThrottle.Status(
+          throttled = IsResourceAmountThrottled(
+            resourceRequests = Map("r" -> true)
+          ),
+          used = ResourceAmount(
+            resourceRequests = Map("r" -> Quantity("2"))
+          ),
+          calculatedThreshold = Option(
+            CalculatedThreshold(ResourceAmount(
+                                  resourceRequests = Map("r" -> Quantity("1"))
+                                ),
+                                at))
+        )
+
+        val actual = calcNextClusterThrottleStatuses(Set(clthrottle.withStatus(status)),
+                                                     pods,
+                                                     nss,
+                                                     at.plusMinutes(1))
+        actual shouldBe empty
+      }
     }
   }
 }
