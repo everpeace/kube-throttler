@@ -17,6 +17,8 @@
 package com.github.everpeace.k8s.throttler.crd
 
 import java.time.{Instant, ZoneOffset, ZonedDateTime}
+
+import com.github.everpeace.k8s.throttler.KubeThrottleConfig
 import skuber.{CustomResource, ListResource, Pod}
 import com.github.everpeace.util.Injection._
 
@@ -108,7 +110,7 @@ package object v1alpha1 {
     }
 
     implicit class StatusSyntax(observedOpt: Option[Status]) {
-      def needToUpdateWith(desired: Status): Boolean =
+      def needToUpdateWith(desired: Status)(implicit conf: KubeThrottleConfig): Boolean =
         if (observedOpt.isEmpty) {
           true
         } else {
@@ -121,7 +123,12 @@ package object v1alpha1 {
               case (None, Some(_)) => true
               case (Some(_), None) => true
               case (Some(o), Some(d)) =>
-                o.copy(calculatedAt = epoch) != d.copy(calculatedAt = epoch)
+                lazy val expired = o.calculatedAt
+                  .plusNanos(conf.statusForceUpdateInterval.toNanos)
+                  .isBefore(d.calculatedAt)
+                lazy val notEquivalent = o.copy(calculatedAt = epoch) != d.copy(
+                  calculatedAt = epoch)
+                expired || notEquivalent
             }
           used || throttled || threshold
         }

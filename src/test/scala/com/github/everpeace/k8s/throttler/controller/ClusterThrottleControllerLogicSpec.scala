@@ -16,17 +16,23 @@
 
 package com.github.everpeace.k8s.throttler.controller
 
+import akka.actor.ActorSystem
+import akka.testkit.TestKit
+import com.github.everpeace.k8s.throttler.KubeThrottleConfig
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1._
-import org.scalatest.{FreeSpec, Matchers}
+import org.scalatest.{FreeSpecLike, Matchers}
 import skuber.LabelSelector.IsEqualRequirement
 import skuber.Resource.{Quantity, ResourceList}
 import skuber.{Container, LabelSelector, Namespace, ObjectMeta, Pod, Resource}
 
 class ClusterThrottleControllerLogicSpec
-    extends FreeSpec
+    extends TestKit(ActorSystem("ThrottleControllerLogicSpec"))
+    with FreeSpecLike
     with Matchers
     with ClusterThrottleControllerLogic {
+
+  implicit val ktConfig = KubeThrottleConfig(system.settings.config)
 
   def mkNs(labels: Map[String, String] = Map.empty) =
     Namespace.from(
@@ -1259,6 +1265,58 @@ class ClusterThrottleControllerLogicSpec
                                                      nss,
                                                      at.plusMinutes(1))
         actual shouldBe empty
+      }
+
+      "should return new status when next status is the same except for calculatedAt but observed is too old" in {
+        val pod = mkPod(
+          List(
+            resourceRequirements(Map("r" -> Quantity("2")))
+          )).copy(
+          metadata = commonMeta,
+          status = phase(Pod.Phase.Running)
+        )
+        val clthrottle = v1alpha1
+          .ClusterThrottle(
+            "t1",
+            v1alpha1.ClusterThrottle.Spec(
+              throttlerName = "kube-throttler",
+              selector = v1alpha1.ClusterThrottle.Selector(
+                List(
+                  v1alpha1.ClusterThrottle.SelectorItem(
+                    LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+              threshold = ResourceAmount(
+                resourceRequests = Map("r" -> Quantity("1"))
+              )
+            )
+          )
+          .withName("t1")
+
+        val ns   = mkNs()
+        val nss  = Map(ns.name -> ns)
+        val pods = Set(pod)
+
+        val status = v1alpha1.ClusterThrottle.Status(
+          throttled = IsResourceAmountThrottled(
+            resourceRequests = Map("r" -> true)
+          ),
+          used = ResourceAmount(
+            resourceRequests = Map("r" -> Quantity("2"))
+          ),
+          calculatedThreshold = Option(
+            CalculatedThreshold(ResourceAmount(
+                                  resourceRequests = Map("r" -> Quantity("1"))
+                                ),
+                                at))
+        )
+
+        val actual = calcNextClusterThrottleStatuses(Set(clthrottle.withStatus(status)),
+                                                     pods,
+                                                     nss,
+                                                     at.plusMinutes(16))
+        actual.size shouldBe 1
+        actual.head shouldBe clthrottle.key -> status.copy(calculatedThreshold =
+          status.calculatedThreshold.map(_.copy(calculatedAt = at.plusMinutes(16))))
       }
     }
   }

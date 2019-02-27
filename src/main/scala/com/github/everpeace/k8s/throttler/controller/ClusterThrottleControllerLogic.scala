@@ -22,6 +22,7 @@ import com.github.everpeace.k8s.throttler.crd.v1alpha1.ResourceAmount
 import com.github.everpeace.util.Injection._
 import skuber._
 import cats.instances.list._
+import com.github.everpeace.k8s.throttler.KubeThrottleConfig
 
 trait ClusterThrottleControllerLogic {
 
@@ -44,6 +45,8 @@ trait ClusterThrottleControllerLogic {
       podsInAllNamespaces: Set[Pod],
       namespaces: Map[String, Namespace],
       at: skuber.Timestamp
+    )(implicit
+      conf: KubeThrottleConfig
     ): List[(ObjectKey, v1alpha1.ClusterThrottle.Status)] = {
 
     for {
