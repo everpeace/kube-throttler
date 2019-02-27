@@ -19,7 +19,6 @@ package com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
-import com.github.everpeace.util.Injection._
 import skuber.ResourceSpecification.Subresources
 import skuber.apiextensions.CustomResourceDefinition
 import skuber.{
@@ -34,35 +33,41 @@ import com.github.everpeace.k8s._
 
 object Throttle {
 
+  case class Selector(selectorTerms: List[SelectorItem])
+  case class SelectorItem(podSelector: LabelSelector)
+
   case class Spec(
       throttlerName: String,
       selector: Selector,
       threshold: ResourceAmount,
       temporaryThresholdOverrides: List[TemporaryThresholdOverride] = List.empty)
-  case class Selector(selectorTerms: List[SelectorItem])
-  case class SelectorItem(podSelector: LabelSelector)
+      extends v1alpha1.Spec[Selector]
 
   case class Status(
       throttled: IsResourceAmountThrottled,
       used: ResourceAmount,
       calculatedThreshold: Option[CalculatedThreshold] = None)
+      extends v1alpha1.Status
 
   val crd: CustomResourceDefinition = CustomResourceDefinition[v1alpha1.Throttle]
 
   def apply(name: String, spec: Spec) = CustomResource[Spec, Status](spec).withName(name)
 
-  trait JsonFormat extends CommonJsonFormat {
+  trait JsonFormat
+      extends CalculatedThreshold.JsonFormat
+      with TemporaryThresholdOverride.JsonFormat
+      with ResourceAmount.JsonFormat {
     import play.api.libs.functional.syntax._
     import play.api.libs.json._
     import skuber.json.format.{maybeEmptyFormatMethods, jsPath2LabelSelFormat}
 
-    implicit val throttleSelectorItemFmt: Format[v1alpha1.Throttle.SelectorItem] =
+    implicit val throttleSelectorItemFmt: Format[SelectorItem] =
       (JsPath \ "podSelector").formatLabelSelector
         .inmap(v1alpha1.Throttle.SelectorItem.apply, unlift(v1alpha1.Throttle.SelectorItem.unapply))
 
-    implicit val throttleSelectorFmt: Format[v1alpha1.Throttle.Selector] =
+    implicit val throttleSelectorFmt: Format[Selector] =
       (JsPath \ "selectorTerms")
-        .formatMaybeEmptyList[v1alpha1.Throttle.SelectorItem]
+        .formatMaybeEmptyList[SelectorItem]
         .inmap(v1alpha1.Throttle.Selector.apply, unlift(v1alpha1.Throttle.Selector.unapply))
 
     implicit val throttleSpecFmt: Format[v1alpha1.Throttle.Spec] = (
@@ -91,50 +96,12 @@ object Throttle {
       }
     }
 
-    implicit class ThrottleSpecSyntax(spec: Spec) {
-      def thresholdAt(at: skuber.Timestamp): ResourceAmount = {
-        (spec.threshold, spec.temporaryThresholdOverrides).thresholdAt(at)
-      }
-
-      def statusFor(used: ResourceAmount, at: skuber.Timestamp): Status = {
-        val calculated = thresholdAt(at)
-        v1alpha1.Throttle.Status(
-          throttled = used.isThrottledFor(calculated, isThrottledOnEqual = true),
-          used = used.filterEffectiveOn(spec.threshold),
-          calculatedThreshold = Option(
-            CalculatedThreshold(calculated,
-                                at,
-                                spec.temporaryThresholdOverrides.collectParseError()))
-        )
-      }
-    }
-
     implicit class ThrottleSyntax(throttle: Throttle) {
       def isTarget(pod: Pod): Boolean = throttle.spec.selector.matches(pod)
-
-      def isAlreadyActiveFor(pod: Pod): Boolean = isTarget(pod) && {
-        (for {
-          st        <- throttle.status
-          throttled = st.throttled
-        } yield throttled.isAlreadyThrottled(pod)).getOrElse(false)
-      }
-
-      def isInsufficientFor(pod: Pod): Boolean = isTarget(pod) && {
-        val podResourceAmount = pod.==>[ResourceAmount]
-        val used              = throttle.status.map(_.used).getOrElse(zeroResourceAmount)
-        val threshold = (for {
-          st         <- throttle.status
-          calculated <- st.calculatedThreshold
-        } yield calculated.threshold).getOrElse(throttle.spec.threshold)
-        val isThrottled =
-          (podResourceAmount add used).isThrottledFor(threshold, isThrottledOnEqual = false)
-        isThrottled.resourceCounts.flatMap(_.pod).getOrElse(false) || isThrottled.resourceRequests
-          .exists(_._2)
-      }
     }
   }
 
-  trait Implicits extends Syntax with JsonFormat {
+  trait ResourceDefinitions {
     implicit val throttleResourceDefinition: ResourceDefinition[Throttle] =
       ResourceDefinition[Throttle](
         group = throttler.crd.Group,

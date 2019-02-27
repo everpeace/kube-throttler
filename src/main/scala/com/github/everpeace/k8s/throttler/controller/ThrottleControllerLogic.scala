@@ -22,18 +22,21 @@ import com.github.everpeace.k8s.throttler.crd.v1alpha1.ResourceAmount
 import com.github.everpeace.util.Injection._
 import skuber._
 import cats.instances.list._
+import com.github.everpeace.k8s.throttler.KubeThrottleConfig
 
 trait ThrottleControllerLogic {
   def isThrottleAlreadyActiveFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean =
-    throttle.isAlreadyActiveFor(pod)
+    throttle.isAlreadyActiveFor(pod, throttle.isTarget(pod))
 
   def isThrottleInsufficientFor(pod: Pod, throttle: v1alpha1.Throttle): Boolean =
-    throttle.isInsufficientFor(pod)
+    throttle.isInsufficientFor(pod, throttle.isTarget(pod))
 
   def calcNextThrottleStatuses(
       targetThrottles: Set[v1alpha1.Throttle],
       podsInNs: Set[Pod],
       at: skuber.Timestamp
+    )(implicit
+      conf: KubeThrottleConfig
     ): List[(ObjectKey, v1alpha1.Throttle.Status)] = {
 
     for {
@@ -44,9 +47,9 @@ trait ThrottleControllerLogic {
         .filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
         .toList
       runningTotal = runningPods.==>[List[ResourceAmount]].foldLeft(zeroResourceAmount)(_ add _)
-      nextStatus   = throttle.spec.statusFor(runningTotal, at)
+      nextStatus   = throttle.spec.statusFor(runningTotal, at)(v1alpha1.Throttle.Status.apply)
 
-      toUpdate <- if (throttle.status != Option(nextStatus)) {
+      toUpdate <- if (throttle.status.needToUpdateWith(nextStatus)) {
                    List(throttle.key -> nextStatus)
                  } else {
                    List.empty

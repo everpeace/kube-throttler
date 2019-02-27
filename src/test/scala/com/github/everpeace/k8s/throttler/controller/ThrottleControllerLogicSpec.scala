@@ -16,14 +16,24 @@
 
 package com.github.everpeace.k8s.throttler.controller
 
+import akka.actor.ActorSystem
+import akka.testkit.TestKit
+import com.github.everpeace.k8s.throttler.KubeThrottleConfig
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1._
-import org.scalatest.{FreeSpec, Matchers}
+import org.scalatest.{FreeSpecLike, Matchers}
 import skuber.LabelSelector.IsEqualRequirement
 import skuber.Resource.{Quantity, ResourceList}
 import skuber.{Container, LabelSelector, ObjectMeta, Pod, Resource}
 
-class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleControllerLogic {
+class ThrottleControllerLogicSpec
+    extends TestKit(ActorSystem("ThrottleControllerLogicSpec"))
+    with FreeSpecLike
+    with Matchers
+    with ThrottleControllerLogic {
+
+  implicit val ktConfig = KubeThrottleConfig(system.settings.config)
+
   def mkPod(resourceRequirements: List[Option[Resource.Requirements]]): Pod = {
     val containers = resourceRequirements.zipWithIndex.map {
       case (rr, index) =>
@@ -1194,6 +1204,98 @@ class ThrottleControllerLogicSpec extends FreeSpec with Matchers with ThrottleCo
         val actual = calcNextThrottleStatuses(Set(throttle), podsInNs, at)
         actual.size shouldBe 1
         actual.head shouldBe throttle.key -> expectedStatus
+      }
+
+      "should return empty when next status is the same except for calculatedAt" in {
+        val pod = mkPod(
+          List(
+            resourceRequirements(Map("r" -> Quantity("2")))
+          )).copy(
+          metadata = commonMeta,
+          status = phase(Pod.Phase.Running)
+        )
+        val throttle = v1alpha1
+          .Throttle(
+            "t1",
+            v1alpha1.Throttle.Spec(
+              throttlerName = "kube-throttler",
+              selector = v1alpha1.Throttle.Selector(
+                List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+              threshold = ResourceAmount(
+                resourceRequests = Map("r" -> Quantity("1"))
+              )
+            )
+          )
+          .withNamespace("default")
+          .withName("t1")
+
+        val podsInNs = Set(pod)
+        val status = v1alpha1.Throttle.Status(
+          throttled = IsResourceAmountThrottled(
+            resourceRequests = Map("r" -> true)
+          ),
+          used = ResourceAmount(
+            resourceRequests = Map("r" -> Quantity("2"))
+          ),
+          calculatedThreshold = Option(
+            CalculatedThreshold(ResourceAmount(
+                                  resourceRequests = Map("r" -> Quantity("1"))
+                                ),
+                                at))
+        )
+
+        val actual =
+          calcNextThrottleStatuses(Set(throttle.withStatus(status)), podsInNs, at.plusMinutes(1))
+        actual shouldBe empty
+      }
+
+      "should return new status when next status is the same except for calculatedAt but observed is too old" in {
+        val pod = mkPod(
+          List(
+            resourceRequirements(Map("r" -> Quantity("2")))
+          )).copy(
+          metadata = commonMeta,
+          status = phase(Pod.Phase.Running)
+        )
+        val throttle = v1alpha1
+          .Throttle(
+            "t1",
+            v1alpha1.Throttle.Spec(
+              throttlerName = "kube-throttler",
+              selector = v1alpha1.Throttle.Selector(
+                List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+              threshold = ResourceAmount(
+                resourceRequests = Map("r" -> Quantity("1"))
+              )
+            )
+          )
+          .withNamespace("default")
+          .withName("t1")
+
+        val podsInNs = Set(pod)
+        val status = v1alpha1.Throttle.Status(
+          throttled = IsResourceAmountThrottled(
+            resourceRequests = Map("r" -> true)
+          ),
+          used = ResourceAmount(
+            resourceRequests = Map("r" -> Quantity("2"))
+          ),
+          calculatedThreshold = Option(
+            CalculatedThreshold(ResourceAmount(
+                                  resourceRequests = Map("r" -> Quantity("1"))
+                                ),
+                                at))
+        )
+
+        val actual =
+          calcNextThrottleStatuses(Set(throttle.withStatus(status)), podsInNs, at.plusMinutes(16))
+        actual.size shouldBe 1
+        actual.head shouldBe throttle.key -> status.copy(calculatedThreshold =
+          status.calculatedThreshold.map(_.copy(calculatedAt = at.plusMinutes(16))))
       }
     }
   }

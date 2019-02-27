@@ -16,13 +16,11 @@
 
 package com.github.everpeace.k8s.throttler.crd
 
-import cats.syntax.order._
-import com.github.everpeace.k8s._
-import com.github.everpeace.util.Injection.{==>, _}
-import skuber.Resource.ResourceList
-import skuber.{CustomResource, ListResource, Pod}
+import java.time.{Instant, ZoneOffset, ZonedDateTime}
 
-import scala.util.Try
+import com.github.everpeace.k8s.throttler.KubeThrottleConfig
+import skuber.{CustomResource, ListResource, Pod}
+import com.github.everpeace.util.Injection._
 
 package object v1alpha1 {
   type Throttle     = CustomResource[v1alpha1.Throttle.Spec, v1alpha1.Throttle.Status]
@@ -32,259 +30,108 @@ package object v1alpha1 {
     CustomResource[v1alpha1.ClusterThrottle.Spec, v1alpha1.ClusterThrottle.Status]
   type ClusterThrottleList = ListResource[ClusterThrottle]
 
-  case class ResourceAmount(
-      resourceCounts: Option[ResourceCount] = None,
-      resourceRequests: ResourceList = Map.empty)
+  val epoch = ZonedDateTime.ofInstant(Instant.ofEpochSecond(0), ZoneOffset.UTC)
 
-  case class ResourceCount(pod: Option[Int] = None)
-
-  case class TemporaryThresholdOverride(
-      beginString: String,
-      begin: skuber.Timestamp,
-      endString: String,
-      end: skuber.Timestamp,
-      threshold: ResourceAmount,
-      parseError: Option[String])
-
-  object TemporaryThresholdOverride {
-    import java.time.{ZonedDateTime, Instant, ZoneOffset}
-    import java.time.format.DateTimeFormatter.{ISO_OFFSET_DATE_TIME, ISO_DATE_TIME}
-
-    private val epoch = ZonedDateTime.ofInstant(Instant.ofEpochSecond(0), ZoneOffset.UTC)
-    private def parse(str: String): Try[ZonedDateTime] =
-      Try(ZonedDateTime.parse(str, ISO_DATE_TIME))
-    private def format(zt: ZonedDateTime): String = zt.format(ISO_OFFSET_DATE_TIME)
-    private def errorMessage(t: Try[ZonedDateTime]): Option[String] =
-      t.failed.toOption.map(th => s"${th.getMessage()}")
-
-    def apply(
-        beginString: String,
-        endString: String,
-        threshold: ResourceAmount
-      ): v1alpha1.TemporaryThresholdOverride = {
-      val parsedBegin = parse(beginString)
-      val parsedEnd   = parse(endString)
-      val message = {
-        val beginMesssage = errorMessage(parsedBegin).map(msg => s"begin: $msg")
-        val endMessage    = errorMessage(parsedEnd).map(msg => s"end: $msg")
-        val combined      = List(beginMesssage, endMessage).filter(_.nonEmpty).map(_.get).mkString(", ")
-        Option(combined).filter(_.trim.nonEmpty)
-      }
-
-      new TemporaryThresholdOverride(
-        beginString,
-        parsedBegin.getOrElse(epoch),
-        endString,
-        parsedEnd.getOrElse(epoch),
-        threshold,
-        message
-      )
-    }
-
-    def apply(
-        begin: skuber.Timestamp,
-        end: skuber.Timestamp,
-        threshold: ResourceAmount
-      ): v1alpha1.TemporaryThresholdOverride = {
-      new TemporaryThresholdOverride(
-        format(begin),
-        begin,
-        format(end),
-        end,
-        threshold,
-        None
-      )
-    }
-
-    def unapply(arg: TemporaryThresholdOverride): Option[(String, String, ResourceAmount)] =
-      Option(arg.beginString, arg.endString, arg.threshold)
+  trait Spec[Selector] {
+    def throttlerName: String
+    def selector: Selector
+    def threshold: ResourceAmount
+    def temporaryThresholdOverrides: List[TemporaryThresholdOverride]
   }
 
-  case class CalculatedThreshold(
-      threshold: ResourceAmount,
-      calculatedAt: skuber.Timestamp,
-      messages: List[String] = List.empty)
-
-  case class IsResourceCountThrottled(pod: Option[Boolean] = None)
-
-  case class IsResourceAmountThrottled(
-      resourceCounts: Option[IsResourceCountThrottled] = None,
-      resourceRequests: Map[String, Boolean] = Map.empty)
-
-  trait CommonJsonFormat {
-    import play.api.libs.json._
-    import play.api.libs.functional.syntax._
-    import skuber.json.format.{quantityFormat, timeReads, timewWrites, maybeEmptyFormatMethods}
-
-    implicit val resourceCountsFmt: Format[v1alpha1.ResourceCount] =
-      Json.format[v1alpha1.ResourceCount]
-
-    implicit val resourceAmountFmt: Format[v1alpha1.ResourceAmount] = (
-      (JsPath \ "resourceCounts").formatNullable[ResourceCount] and
-        (JsPath \ "resourceRequests").formatMaybeEmptyMap[skuber.Resource.Quantity]
-    )(ResourceAmount.apply, unlift(ResourceAmount.unapply))
-
-    implicit val temporaryThrottleOverrideFmt: Format[v1alpha1.TemporaryThresholdOverride] = (
-      (JsPath \ "begin").format[String] and
-        (JsPath \ "end").format[String] and
-        (JsPath \ "threshold").format[ResourceAmount]
-    )(TemporaryThresholdOverride.apply, unlift(TemporaryThresholdOverride.unapply))
-
-    implicit val calculatedThresholdFmt: Format[v1alpha1.CalculatedThreshold] = (
-      (JsPath \ "threshold").format[ResourceAmount] and
-        (JsPath \ "calculatedAt").format[skuber.Timestamp] and
-        (JsPath \ "messages").formatMaybeEmptyList[String]
-    )(v1alpha1.CalculatedThreshold.apply, unlift(v1alpha1.CalculatedThreshold.unapply))
-
-    implicit val isResourceCountThrottledFmt: Format[v1alpha1.IsResourceCountThrottled] =
-      Json.format[v1alpha1.IsResourceCountThrottled]
-
-    implicit val isResourceThrottledFmt: Format[v1alpha1.IsResourceAmountThrottled] =
-      Json.format[v1alpha1.IsResourceAmountThrottled]
+  trait Status {
+    def throttled: IsResourceAmountThrottled
+    def used: ResourceAmount
+    def calculatedThreshold: Option[CalculatedThreshold]
   }
 
-  trait CommonSyntax {
-    implicit val podCanBeResourceAmount: Pod ==> ResourceAmount = new ==>[Pod, ResourceAmount] {
-      override def to: Pod => ResourceAmount =
-        pod =>
-          ResourceAmount(
-            resourceCounts = Option(ResourceCount(pod = Option(1))),
-            resourceRequests = pod.totalRequests
-        )
-    }
+  trait JsonFormat
+      extends v1alpha1.Throttle.JsonFormat
+      with v1alpha1.ClusterThrottle.JsonFormats
+      with CalculatedThreshold.JsonFormat
+      with TemporaryThresholdOverride.JsonFormat
+      with ResourceAmount.JsonFormat
 
-    implicit class CalculateThresholdSyntax(
-        tup: (ResourceAmount, List[TemporaryThresholdOverride])) {
-      def thresholdAt(at: skuber.Timestamp): ResourceAmount = {
-        val threshold = tup._1
-        val overrides = tup._2
-        overrides.foldRight(threshold) { (thresholdOverride, calculated) =>
-          if (thresholdOverride.isActiveAt(at)) {
-            calculated.merge(thresholdOverride.threshold)
-          } else {
-            calculated
-          }
-        }
+  trait Syntax
+      extends v1alpha1.Throttle.Syntax
+      with v1alpha1.ClusterThrottle.Syntax
+      with CalculatedThreshold.Syntax
+      with TemporaryThresholdOverride.Syntax
+      with ResourceAmount.Syntax
+
+  trait ResourceDefinitions
+      extends v1alpha1.Throttle.ResourceDefinitions
+      with v1alpha1.ClusterThrottle.ResourceDefinitions
+
+  object Implicits extends JsonFormat with Syntax with ResourceDefinitions {
+
+    implicit class AbstractThrottleSyntax(abstThr: CustomResource[_ <: Spec[_], _ <: Status]) {
+      def isAlreadyActiveFor(pod: Pod, isTarget: => Boolean): Boolean = isTarget && {
+        (for {
+          st        <- abstThr.status
+          throttled = st.throttled
+        } yield throttled.isAlreadyThrottled(pod)).getOrElse(false)
       }
-    }
 
-    implicit class IsResourceAmountThrottledSyntax(throttled: IsResourceAmountThrottled) {
-      def isAlreadyThrottled(pod: Pod): Boolean = {
-        val podAmount           = pod.==>[ResourceAmount]
-        val isPodCountThrottled = throttled.resourceCounts.flatMap(_.pod).getOrElse(false)
-        val isSomePodRequestedResourceThrottled = throttled.resourceRequests
-          .filterKeys(key => podAmount.resourceRequests.contains(key))
+      def isInsufficientFor(pod: Pod, isTarget: => Boolean): Boolean = isTarget && {
+        val podResourceAmount = pod.==>[ResourceAmount]
+        val used              = abstThr.status.map(_.used).getOrElse(zeroResourceAmount)
+        val threshold = (for {
+          st         <- abstThr.status
+          calculated <- st.calculatedThreshold
+        } yield calculated.threshold).getOrElse(abstThr.spec.threshold)
+        val isThrottled =
+          (podResourceAmount add used).isThrottledFor(threshold, isThrottledOnEqual = false)
+        isThrottled.resourceCounts.flatMap(_.pod).getOrElse(false) || isThrottled.resourceRequests
           .exists(_._2)
-        isPodCountThrottled || isSomePodRequestedResourceThrottled
       }
     }
 
-    implicit class ResourceAmountSyntax(ra: ResourceAmount) {
-      def isThrottledFor(
-          threshold: ResourceAmount,
-          isThrottledOnEqual: Boolean = true
-        ): IsResourceAmountThrottled = {
-        val used = ra
-        v1alpha1.IsResourceAmountThrottled(
-          resourceCounts = for {
-            rc <- threshold.resourceCounts
-            th <- rc.pod
-            c  <- used.resourceCounts.flatMap(_.pod).orElse(Option(0))
-          } yield
-            IsResourceCountThrottled(
-              pod = Option(
-                if (isThrottledOnEqual) th <= c else th < c
-              )),
-          resourceRequests = threshold.resourceRequests.keys.map { resource =>
-            if (used.resourceRequests.contains(resource)) {
-              resource -> (if (isThrottledOnEqual) {
-                             threshold.resourceRequests(resource) <= used.resourceRequests(resource)
-                           } else {
-                             threshold.resourceRequests(resource) < used.resourceRequests(resource)
-                           })
-            } else {
-              resource -> false
+    implicit class SpecSyntax[S](spec: Spec[S]) {
+      def statusFor[ST <: Status](
+          used: ResourceAmount,
+          at: skuber.Timestamp
+        )(apply: (IsResourceAmountThrottled, ResourceAmount, Option[CalculatedThreshold]) => ST
+        ): ST = {
+        val calculated = spec.thresholdAt(at)
+        apply(
+          used.isThrottledFor(calculated, isThrottledOnEqual = true),
+          used.filterEffectiveOn(spec.threshold),
+          Option(
+            CalculatedThreshold(calculated,
+                                at,
+                                spec.temporaryThresholdOverrides.collectParseError())
+          )
+        )
+      }
+
+      def thresholdAt(at: skuber.Timestamp): ResourceAmount =
+        (spec.threshold, spec.temporaryThresholdOverrides).thresholdAt(at)
+    }
+
+    implicit class StatusSyntax(observedOpt: Option[Status]) {
+      def needToUpdateWith(desired: Status)(implicit conf: KubeThrottleConfig): Boolean =
+        if (observedOpt.isEmpty) {
+          true
+        } else {
+          val observedStatus = observedOpt.get
+          lazy val used      = observedStatus.used != desired.used
+          lazy val throttled = observedStatus.throttled != desired.throttled
+          lazy val threshold =
+            (observedStatus.calculatedThreshold, desired.calculatedThreshold) match {
+              case (None, None)    => false
+              case (None, Some(_)) => true
+              case (Some(_), None) => true
+              case (Some(o), Some(d)) =>
+                lazy val expired = o.calculatedAt
+                  .plusNanos(conf.statusForceUpdateInterval.toNanos)
+                  .isBefore(d.calculatedAt)
+                lazy val notEquivalent = o.copy(calculatedAt = epoch) != d.copy(
+                  calculatedAt = epoch)
+                expired || notEquivalent
             }
-          }.toMap
-        )
-      }
-
-      def merge(rb: ResourceAmount): ResourceAmount = {
-        val mergedResoureCounts = rb.resourceCounts.orElse(ra.resourceCounts)
-        val mergedResourceRequests = rb.resourceRequests.foldLeft(ra.resourceRequests) {
-          (merged, req) =>
-            merged + req
+          used || throttled || threshold
         }
-        ResourceAmount(
-          resourceCounts = mergedResoureCounts,
-          resourceRequests = mergedResourceRequests
-        )
-      }
-
-      def filterEffectiveOn(threshold: ResourceAmount): ResourceAmount = {
-        val used = ra
-        v1alpha1.ResourceAmount(
-          resourceCounts = for {
-            rc  <- threshold.resourceCounts
-            urc <- used.resourceCounts
-          } yield {
-            val pc = for {
-              _ <- rc.pod
-              p <- urc.pod
-            } yield p
-            ResourceCount(pod = pc)
-          },
-          resourceRequests = used.resourceRequests.filterKeys(threshold.resourceRequests.contains)
-        )
-      }
-    }
-
-    implicit class TemporaryThresholdOverridesSyntax(ovrds: List[TemporaryThresholdOverride]) {
-      def collectParseError(): List[String] = {
-        ovrds.zipWithIndex.foldRight(List.empty[String]) { (ovrd, msgs) =>
-          if (ovrd._1.parseError.nonEmpty) {
-            s"[${ovrd._2}]: ${ovrd._1.parseError.get}" :: msgs
-          } else {
-            msgs
-          }
-        }
-      }
-    }
-
-    implicit class TemporaryThresholdOverrideSyntax(ovrd: TemporaryThresholdOverride) {
-      def isActiveAt(at: skuber.Timestamp): Boolean =
-        ovrd.parseError.isEmpty &&
-          (ovrd.begin.isEqual(at) || ovrd.begin.isBefore(at)) &&
-          (at.isEqual(ovrd.end) || at.isBefore(ovrd.end))
     }
   }
-
-  object Implicits
-      extends v1alpha1.Throttle.Implicits
-      with v1alpha1.ClusterThrottle.Implicits
-      with CommonJsonFormat
-      with CommonSyntax {
-
-    val zeroResourceCount = ResourceCount()
-    implicit class ResourceCountAddition(rc: ResourceCount) {
-      def add(rc2: ResourceCount) = ResourceCount(
-        pod = for {
-          i <- rc.pod.orElse(Option(0))
-          j <- rc2.pod
-        } yield i + j
-      )
-    }
-
-    val zeroResourceAmount = ResourceAmount()
-    implicit class ResourceAmountAddition(ra: ResourceAmount) {
-      def add(ra2: ResourceAmount) = ResourceAmount(
-        resourceCounts = for {
-          a <- ra.resourceCounts.orElse(Option(zeroResourceCount))
-          b <- ra2.resourceCounts
-        } yield a add b,
-        resourceRequests = ra.resourceRequests add ra2.resourceRequests
-      )
-    }
-  }
-
 }
