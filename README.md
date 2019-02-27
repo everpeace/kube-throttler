@@ -388,6 +388,13 @@ Apache License 2.0
 
 # Change Logs
 
+## `0.5.2`
+
+- Fixed
+  - too frequent updates on throttles/clusterthrottles calculated threshold
+- Added
+  - introduced `status-force-update-interval (default: 15 m)` parameter to update calculated threshold forcefully even if its threshold values are unchanged.
+
 ## `0.5.1`
 
 - Fixed
