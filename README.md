@@ -388,6 +388,17 @@ Apache License 2.0
 
 # Change Logs
 
+## `0.5.3`
+
+all changes are for performance issue.
+
+- Changed
+  - now http server's request handling can be performed in isolated thread pool.
+  - checking a pod is throttled are performed in different actor (`ThrottleRequestHandler`)
+  - healthcheck is now performed in different actor `WatchActor`.
+- Fixed
+  - can't collect dispatcher metrics. 
+
 ## `0.5.2`
 
 - Fixed
