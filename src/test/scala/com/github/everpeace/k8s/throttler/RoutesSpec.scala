@@ -23,6 +23,7 @@ import akka.util.{ByteString, Timeout}
 import com.github.everpeace.k8s.throttler.controller.ThrottleController
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.{IsResourceAmountThrottled, ResourceAmount}
+import com.github.everpeace.util.ActorWatcher
 import de.heikoseeberger.akkahttpplayjson.PlayJsonSupport
 import io.k8s.pkg.scheduler.api.v1.ExtenderFilterResult
 import io.k8s.pkg.scheduler.api.v1.Implicits._
@@ -142,7 +143,9 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
     "dummyThrottleController"
   )
 
-  val checkThrottleRoute = new Routes(dummyThrottleController, Timeout(1 second)).checkThrottle
+  val checkThrottleRoute = new Routes(dummyThrottleController,
+                                      system.actorOf(ActorWatcher.props(dummyThrottleController)),
+                                      Timeout(1 second)).checkThrottle
 
   "check_throttle" - {
     "should return ExtenderFilterResult without FailedNodes and Errors" in {

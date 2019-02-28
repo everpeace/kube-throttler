@@ -20,7 +20,6 @@ import akka.Done
 import akka.actor.{Actor, ActorLogging, Cancellable, PoisonPill, Props}
 import akka.stream.ActorMaterializer
 import akka.stream.scaladsl.{Merge, Sink, Source}
-import com.github.everpeace.healthchecks
 import com.github.everpeace.k8s._
 import com.github.everpeace.k8s.throttler.KubeThrottleConfig
 import com.github.everpeace.k8s.throttler.controller.ThrottleController._
@@ -432,7 +431,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
   }
 
   override def receive: Receive =
-    eventHandler orElse resourceWatchHandler orElse requestHandler orElse reconcileHandler orElse healthCheckHandler
+    eventHandler orElse resourceWatchHandler orElse requestHandler orElse reconcileHandler
 
   def eventHandler: Receive = {
     case PodWatchEvent(e, at) if isPodResponsible(e._object) =>
@@ -586,10 +585,6 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
       }
   }
 
-  def healthCheckHandler: Receive = {
-    case HealthCheckRequest => sender ! healthchecks.healthy
-  }
-
   def reconcileHandler: Receive = {
     case ReconcileThrottlesEvent(f, fName, at) => reconcileThrottlesWithFilter(f, fName, at)
     case ReconcileClusterThrottlesEvent(f, fName, at) =>
@@ -710,8 +705,6 @@ object ThrottleController {
       filter: v1alpha1.ClusterThrottle => Boolean,
       filterName: String,
       at: skuber.Timestamp = java.time.ZonedDateTime.now())
-
-  object HealthCheckRequest
 
   // messages for internal controls
   private case class ResourceWatchDone(done: Try[Done])

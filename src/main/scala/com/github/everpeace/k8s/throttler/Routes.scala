@@ -26,20 +26,21 @@ import com.github.everpeace.healthchecks.k8s._
 import com.github.everpeace.k8s._
 import com.github.everpeace.k8s.throttler.controller.ThrottleController.{
   CheckThrottleRequest,
-  HealthCheckRequest,
   NotThrottled,
   Throttled
 }
 import de.heikoseeberger.akkahttpplayjson.PlayJsonSupport
 import io.k8s.pkg.scheduler.api.v1
 import io.k8s.pkg.scheduler.api.v1.ExtenderArgs
+import com.github.everpeace.healthchecks
 
-import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success}
 import cats.implicits._
+import com.github.everpeace.util.ActorWatcher.IsTargetAlive
 
 class Routes(
     throttleController: ActorRef,
+    controllerWatcher: ActorRef,
     askTimeout: Timeout,
     serverDispatcherName: Option[String] = None,
 )(implicit
@@ -54,7 +55,13 @@ class Routes(
     serverDispatcherName.map(system.dispatchers.lookup(_)).getOrElse(system.dispatcher)
 
   private val checkController = asyncHealthCheck("isThrottleControllerLive") {
-    (throttleController ? HealthCheckRequest).mapTo[HealthCheckResult]
+    (controllerWatcher ? IsTargetAlive).mapTo[Boolean].map { isAlive =>
+      if (isAlive) {
+        healthchecks.healthy
+      } else {
+        healthchecks.unhealthy("throttle-controller is dead.")
+      }
+    }
   }
 
   def all =

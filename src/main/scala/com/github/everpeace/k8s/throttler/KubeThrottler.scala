@@ -26,7 +26,7 @@ import kamon.prometheus.PrometheusReporter
 import kamon.system.SystemMetrics
 
 import scala.concurrent.duration._
-import scala.concurrent.{Await, ExecutionContext}
+import scala.concurrent.Await
 import scala.util.{Failure, Success}
 
 object KubeThrottler extends App {
@@ -61,7 +61,10 @@ object KubeThrottler extends App {
   }
 
   val throttler = system.actorOf(ThrottleController.props(k8s, config), "throttle-controller")
+  val throttlerWatcher =
+    system.actorOf(ActorWatcher.props(throttler), name = "throttle-controller-watcher")
   val routes = new Routes(throttler,
+                          throttlerWatcher,
                           config.throttlerAskTimeout,
                           config.serverDispatcherName).all
 
