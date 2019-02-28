@@ -40,16 +40,18 @@ import cats.implicits._
 
 class Routes(
     throttleController: ActorRef,
-    askTimeout: Timeout
-  )(implicit
+    askTimeout: Timeout,
+    serverDispatcherName: Option[String] = None,
+)(implicit
     system: ActorSystem,
-    materializer: ActorMaterializer,
-    ec: ExecutionContext)
+    materializer: ActorMaterializer)
     extends PlayJsonSupport {
 
   import v1.Implicits._
 
   implicit private val _askTimeout = askTimeout
+  implicit private val ec =
+    serverDispatcherName.map(system.dispatchers.lookup(_)).getOrElse(system.dispatcher)
 
   private val checkController = asyncHealthCheck("isThrottleControllerLive") {
     (throttleController ? HealthCheckRequest).mapTo[HealthCheckResult]

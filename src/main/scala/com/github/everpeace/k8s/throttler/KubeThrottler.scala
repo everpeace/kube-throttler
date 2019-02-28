@@ -20,6 +20,7 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.stream.ActorMaterializer
 import com.github.everpeace.k8s.throttler.controller.ThrottleController
+import com.github.everpeace.util.ActorWatcher
 import kamon.Kamon
 import kamon.prometheus.PrometheusReporter
 import kamon.system.SystemMetrics
@@ -42,7 +43,6 @@ object KubeThrottler extends App {
 
   implicit val system: ActorSystem    = ActorSystem("kube-throttler")
   implicit val mat: ActorMaterializer = ActorMaterializer()
-  implicit val ec: ExecutionContext   = system.dispatcher
   val logger                          = system.log
   logger.info("starting kube-throttler")
 
@@ -61,17 +61,21 @@ object KubeThrottler extends App {
   }
 
   val throttler = system.actorOf(ThrottleController.props(k8s, config), "throttle-controller")
-  val routes    = new Routes(throttler, config.throttlerAskTimeout).all
+  val routes = new Routes(throttler,
+                          config.throttlerAskTimeout,
+                          config.serverDispatcherName).all
 
-  Http().bindAndHandle(routes, config.host, config.port).onComplete {
-    case Success(binding) =>
-      logger.info("successfully started kube-throttler on {}", binding.localAddress)
-    case Failure(_) =>
-      logger.error(
-        "failed creating http server.  shutting down kube-throttler. (graceful period = {})",
-        config.gracefulShutdownDuration
-      )
-      gracefulShutdown(system, config.gracefulShutdownDuration)
-      sys.exit(1)
-  }
+  Http()
+    .bindAndHandle(routes, config.host, config.port)
+    .onComplete {
+      case Success(binding) =>
+        logger.info("successfully started kube-throttler on {}", binding.localAddress)
+      case Failure(_) =>
+        logger.error(
+          "failed creating http server.  shutting down kube-throttler. (graceful period = {})",
+          config.gracefulShutdownDuration
+        )
+        gracefulShutdown(system, config.gracefulShutdownDuration)
+        sys.exit(1)
+    }(system.dispatcher)
 }
