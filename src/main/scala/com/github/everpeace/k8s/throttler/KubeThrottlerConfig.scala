@@ -28,6 +28,12 @@ case class KubeThrottleConfig(config: Config) {
 
   def throttlerName: String = throttlerConfig.getString("throttler-name")
 
+  def serverDispatcherName: Option[String] =
+    if (throttlerConfig.hasPath("server-dispatcher-name")) {
+      Some(throttlerConfig.getString("server-dispatcher-name"))
+    } else {
+      None
+    }
   def watchBufferSize: Int = throttlerConfig.getInt("watch-buffer-size")
 
   def targetSchedulerNames: List[String] =
