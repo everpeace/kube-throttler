@@ -24,11 +24,7 @@ import akka.util.Timeout
 import com.github.everpeace.healthchecks._
 import com.github.everpeace.healthchecks.k8s._
 import com.github.everpeace.k8s._
-import com.github.everpeace.k8s.throttler.controller.ThrottleController.{
-  CheckThrottleRequest,
-  NotThrottled,
-  Throttled
-}
+import com.github.everpeace.k8s.throttler.controller.ThrottleRequestHandler._
 import de.heikoseeberger.akkahttpplayjson.PlayJsonSupport
 import io.k8s.pkg.scheduler.api.v1
 import io.k8s.pkg.scheduler.api.v1.ExtenderArgs
@@ -39,7 +35,7 @@ import cats.implicits._
 import com.github.everpeace.util.ActorWatcher.IsTargetAlive
 
 class Routes(
-    throttleController: ActorRef,
+    requestHandleActor: ActorRef,
     controllerWatcher: ActorRef,
     askTimeout: Timeout,
     serverDispatcherName: Option[String] = None,
@@ -54,18 +50,27 @@ class Routes(
   implicit private val ec =
     serverDispatcherName.map(system.dispatchers.lookup(_)).getOrElse(system.dispatcher)
 
-  private val checkController = asyncHealthCheck("isThrottleControllerLive") {
+  private val controllerAlive = asyncHealthCheck("isThrottleControllerLive") {
     (controllerWatcher ? IsTargetAlive).mapTo[Boolean].map { isAlive =>
       if (isAlive) {
         healthchecks.healthy
       } else {
-        healthchecks.unhealthy("throttle-controller is dead.")
+        healthchecks.unhealthy("throttle-controller is not alive.")
+      }
+    }
+  }
+  private val requestHandlerReady = asyncHealthCheck("isThrottleControllerReady") {
+    (requestHandleActor ? IsReady).mapTo[Boolean].map { isReady =>
+      if (isReady) {
+        healthchecks.healthy
+      } else {
+        healthchecks.unhealthy("throttle-controller is not ready.")
       }
     }
   }
 
   def all =
-    readinessProbe(checkController).toRoute ~ livenessProbe(checkController).toRoute ~ checkThrottle
+    readinessProbe(requestHandlerReady).toRoute ~ livenessProbe(controllerAlive).toRoute ~ checkThrottle
 
   def errorResult(arg: ExtenderArgs, message: String): v1.ExtenderFilterResult = {
     val nodeNames = if (arg.nodes.nonEmpty) {
@@ -115,7 +120,7 @@ class Routes(
       entity(as[v1.ExtenderArgs]) { extenderArgs =>
         val pod = extenderArgs.pod
         system.log.info("checking throttle status for pod {}", pod.key)
-        onComplete(throttleController ? CheckThrottleRequest(pod)) {
+        onComplete(requestHandleActor ? CheckThrottleRequest(pod)) {
           // some throttles are active!!  no nodes are schedulable
           case Success(
               Throttled(p,

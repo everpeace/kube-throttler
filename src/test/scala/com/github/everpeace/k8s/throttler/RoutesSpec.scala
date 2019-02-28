@@ -20,7 +20,11 @@ import akka.http.scaladsl.model._
 import akka.http.scaladsl.testkit.{RouteTestTimeout, ScalatestRouteTest}
 import akka.testkit._
 import akka.util.{ByteString, Timeout}
-import com.github.everpeace.k8s.throttler.controller.ThrottleController
+import com.github.everpeace.k8s.throttler.controller.ThrottleRequestHandler.{
+  CheckThrottleRequest,
+  NotThrottled,
+  Throttled
+}
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.{IsResourceAmountThrottled, ResourceAmount}
 import com.github.everpeace.util.ActorWatcher
@@ -126,17 +130,17 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
   val dummyThrottleController = system.actorOf(
     Props(new Actor {
       override def receive: Receive = {
-        case ThrottleController.CheckThrottleRequest(p) if p.name == "throttled" =>
-          sender() ! ThrottleController.Throttled(
+        case CheckThrottleRequest(p) if p.name == "throttled" =>
+          sender() ! Throttled(
             p,
             Set(dummyActiveThrottleFor(p)),
             Set(dummyActiveClusterThrottleFor(p)),
             Set(dummyInsufficientThrottleFor(p)),
             Set(dummyInsufficientClusterThrottleFor(p))
           )
-        case ThrottleController.CheckThrottleRequest(p) if p.name == "not-throttled" =>
-          sender() ! ThrottleController.NotThrottled(p)
-        case ThrottleController.CheckThrottleRequest(p) if p.name == "timeout" =>
+        case CheckThrottleRequest(p) if p.name == "not-throttled" =>
+          sender() ! NotThrottled(p)
+        case CheckThrottleRequest(p) if p.name == "timeout" =>
         // timeout
       }
     }),

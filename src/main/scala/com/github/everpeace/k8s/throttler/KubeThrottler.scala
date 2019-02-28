@@ -19,7 +19,7 @@ package com.github.everpeace.k8s.throttler
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.stream.ActorMaterializer
-import com.github.everpeace.k8s.throttler.controller.ThrottleController
+import com.github.everpeace.k8s.throttler.controller.{ThrottleController, ThrottleRequestHandler}
 import com.github.everpeace.util.ActorWatcher
 import kamon.Kamon
 import kamon.prometheus.PrometheusReporter
@@ -60,10 +60,13 @@ object KubeThrottler extends App {
     gracefulShutdown(system, config.gracefulShutdownDuration)
   }
 
-  val throttler = system.actorOf(ThrottleController.props(k8s, config), "throttle-controller")
+  val requestHandleActor =
+    system.actorOf(ThrottleRequestHandler.props(), "throttle-request-handler")
+  val throttler =
+    system.actorOf(ThrottleController.props(requestHandleActor, k8s, config), "throttle-controller")
   val throttlerWatcher =
-    system.actorOf(ActorWatcher.props(throttler), name = "throttle-controller-watcher")
-  val routes = new Routes(throttler,
+    system.actorOf(ActorWatcher.props(requestHandleActor), name = "throttle-controller-watcher")
+  val routes = new Routes(requestHandleActor,
                           throttlerWatcher,
                           config.throttlerAskTimeout,
                           config.serverDispatcherName).all

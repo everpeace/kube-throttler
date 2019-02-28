@@ -17,12 +17,13 @@
 package com.github.everpeace.k8s.throttler.controller
 
 import akka.Done
-import akka.actor.{Actor, ActorLogging, Cancellable, PoisonPill, Props}
+import akka.actor.{Actor, ActorLogging, ActorRef, Cancellable, PoisonPill, Props}
 import akka.stream.ActorMaterializer
 import akka.stream.scaladsl.{Merge, Sink, Source}
 import com.github.everpeace.k8s._
 import com.github.everpeace.k8s.throttler.KubeThrottleConfig
 import com.github.everpeace.k8s.throttler.controller.ThrottleController._
+import com.github.everpeace.k8s.throttler.controller.ThrottleRequestHandler.Initialize
 import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.Implicits._
 import com.github.everpeace.k8s.throttler.metrics.{
@@ -40,7 +41,11 @@ import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success, Try}
 
-class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrottleConfig)
+class ThrottleController(
+    requestHandlerActor: ActorRef
+  )(implicit
+    val k8s: K8SRequestContext,
+    config: KubeThrottleConfig)
     extends Actor
     with ActorLogging
     with ThrottleControllerLogic
@@ -109,6 +114,10 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
 
         log.info(
           "starting periodic syncs for throttles/clusterthrottles with temporaryThresholdOverrides")
+
+        requestHandlerActor ! Initialize(cache.throttles.toImmutableMap,
+                                         cache.clusterThrottles.toImmutableMap,
+                                         cache.namespaces.toImmutableMap)
 
         cancelWhenRestart += system.scheduler.schedule(config.reconcileTemporaryThresholdInterval,
                                                        config.reconcileTemporaryThresholdInterval) {
@@ -431,7 +440,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
   }
 
   override def receive: Receive =
-    eventHandler orElse resourceWatchHandler orElse requestHandler orElse reconcileHandler
+    eventHandler orElse resourceWatchHandler orElse reconcileHandler
 
   def eventHandler: Receive = {
     case PodWatchEvent(e, at) if isPodResponsible(e._object) =>
@@ -454,7 +463,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
         e._type,
         config.targetSchedulerNames)
 
-    case ClusterThrottleWatchEvent(e, at) if isClusterThrottleResponsible(e._object) =>
+    case evt @ ClusterThrottleWatchEvent(e, at) if isClusterThrottleResponsible(e._object) =>
       log.info("detected clusterthrottle {} was {}", e._object.key, e._type)
       val prev = cache.clusterThrottles.get(e._object.key)
       val updateOrRemoveCacheThen = e._type match {
@@ -476,6 +485,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
             recordClusterThrottleSpecMetric(e._object)
         }
       }
+      requestHandlerActor forward evt
 
     case ClusterThrottleWatchEvent(e, at) if !isClusterThrottleResponsible(e._object) =>
       log.info(
@@ -484,7 +494,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
         e._type,
         config.throttlerName)
 
-    case ThrottleWatchEvent(e, at) if isThrottleResponsible(e._object) =>
+    case evt @ ThrottleWatchEvent(e, at) if isThrottleResponsible(e._object) =>
       log.info("detected throttle {} was {}", e._object.key, e._type)
       val prev = cache.throttles.get(e._object.key)
       val updateOrRemoveCacheThen = e._type match {
@@ -506,6 +516,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
             recordThrottleSpecMetric(e._object)
         }
       }
+      requestHandlerActor forward evt
 
     case ThrottleWatchEvent(e, at) if !isThrottleResponsible(e._object) =>
       log.info(
@@ -514,7 +525,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
         e._type,
         config.throttlerName)
 
-    case NamespaceWatchEvent(e, at) =>
+    case evt @ NamespaceWatchEvent(e, at) =>
       log.info("detected namespace {} was {}", e._object.key, e._type)
       val updateOrRemoveThen = e._type match {
         case EventType.DELETED =>
@@ -525,6 +536,7 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
       updateOrRemoveThen { namespace =>
         updateClusterThrottleBecauseOf(namespace, at)
       }
+      requestHandlerActor forward evt
   }
 
   def resourceWatchHandler: Receive = {
@@ -540,48 +552,6 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
             ex
           )
           throw new RuntimeException(s"watch api failed by $ex.")
-      }
-  }
-
-  def requestHandler: Receive = {
-    case CheckThrottleRequest(pod) =>
-      val throttlesInNs   = cache.throttles.toImmutable.getOrElse(pod.namespace, Set.empty)
-      val activeThrottles = throttlesInNs.filter(isThrottleAlreadyActiveFor(pod, _))
-      val insufficientThrottles =
-        throttlesInNs.filter(t =>
-          !isThrottleAlreadyActiveFor(pod, t) && isThrottleInsufficientFor(pod, t))
-
-      val clusterThrottles = cache.clusterThrottles.toImmutable.values.fold(Set.empty)(_ ++ _)
-      val namespaces =
-        cache.namespaces.toImmutable.flatMap(kv => kv._2.map(ns => ns.name -> ns).toMap)
-      val activeClusterThrottles = clusterThrottles.filter { clthr =>
-        if (namespaces.contains(pod.namespace)) {
-          isClusterThrottleAlreadyActiveFor(pod, namespaces(pod.namespace), clthr)
-        } else {
-          false
-        }
-      }
-      val insufficientClusterThrottles = clusterThrottles.filter { clthr =>
-        if (namespaces.contains(pod.namespace)) {
-          val podsNs = namespaces(pod.namespace)
-          !isClusterThrottleAlreadyActiveFor(pod, podsNs, clthr) && isClusterThrottleInsufficientFor(
-            pod,
-            podsNs,
-            clthr)
-        } else {
-          false
-        }
-      }
-
-      val isThrottled = activeThrottles.nonEmpty || activeClusterThrottles.nonEmpty || insufficientThrottles.nonEmpty || insufficientClusterThrottles.nonEmpty
-      if (isThrottled) {
-        sender ! Throttled(pod,
-                           activeThrottles,
-                           activeClusterThrottles,
-                           insufficientThrottles,
-                           insufficientClusterThrottles)
-      } else {
-        sender ! NotThrottled(pod)
       }
   }
 
@@ -657,6 +627,8 @@ class ThrottleController(implicit val k8s: K8SRequestContext, config: KubeThrott
 
     def toImmutable: Map[String, Set[R]] = map.toMap.mapValues(m => m.values.toSet)
 
+    def toImmutableMap: Map[String, Map[ObjectKey, R]] = map.toMap.mapValues(_.toMap)
+
     def get(key: ObjectKey): Option[R] = {
       map.get(key._1).flatMap(_.get(key))
     }
@@ -685,17 +657,6 @@ object ThrottleController {
     }
 
   // messages
-  case class CheckThrottleRequest(pod: Pod)
-
-  case class Throttled(
-      pod: Pod,
-      activeThrottles: Set[v1alpha1.Throttle],
-      activeClusterThrottles: Set[v1alpha1.ClusterThrottle],
-      insufficientThrottles: Set[v1alpha1.Throttle],
-      insufficientClusterThrottles: Set[v1alpha1.ClusterThrottle])
-
-  case class NotThrottled(pod: Pod)
-
   case class ReconcileThrottlesEvent(
       filter: v1alpha1.Throttle => Boolean,
       filterName: String,
@@ -706,28 +667,28 @@ object ThrottleController {
       filterName: String,
       at: skuber.Timestamp = java.time.ZonedDateTime.now())
 
-  // messages for internal controls
+  // messages for controls
   private case class ResourceWatchDone(done: Try[Done])
 
-  private case class PodWatchEvent(
+  case class PodWatchEvent(
       e: K8SWatchEvent[Pod],
       at: skuber.Timestamp = java.time.ZonedDateTime.now())
 
-  private case class ThrottleWatchEvent(
+  case class ThrottleWatchEvent(
       e: K8SWatchEvent[v1alpha1.Throttle],
       at: skuber.Timestamp = java.time.ZonedDateTime.now())
 
-  private case class ClusterThrottleWatchEvent(
+  case class ClusterThrottleWatchEvent(
       e: K8SWatchEvent[v1alpha1.ClusterThrottle],
       at: skuber.Timestamp = java.time.ZonedDateTime.now())
 
-  private case class NamespaceWatchEvent(
+  case class NamespaceWatchEvent(
       e: K8SWatchEvent[Namespace],
       at: skuber.Timestamp = java.time.ZonedDateTime.now())
 
-  def props(k8s: K8SRequestContext, config: KubeThrottleConfig) = {
+  def props(requestHandlerActor: ActorRef, k8s: K8SRequestContext, config: KubeThrottleConfig) = {
     implicit val _k8s    = k8s
     implicit val _config = config
-    Props(new ThrottleController())
+    Props(new ThrottleController(requestHandlerActor))
   }
 }
