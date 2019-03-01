@@ -110,11 +110,26 @@ package object v1alpha1 {
     }
 
     implicit class StatusSyntax(observedOpt: Option[Status]) {
+
+      def needToUpdateAt(at: skuber.Timestamp)(implicit conf: KubeThrottleConfig): Boolean = {
+        lazy val empty        = observedOpt.isEmpty
+        lazy val noCalculated = observedOpt.get.calculatedThreshold.isEmpty
+        lazy val expired = observedOpt.get.calculatedThreshold.get.calculatedAt
+          .plusNanos(conf.statusForceUpdateInterval.toNanos)
+          .isBefore(at)
+        empty || noCalculated || expired
+      }
+
       def needToUpdateWith(desired: Status)(implicit conf: KubeThrottleConfig): Boolean =
         if (observedOpt.isEmpty) {
           true
         } else {
           val observedStatus = observedOpt.get
+          lazy val invariant =
+            (observedStatus.calculatedThreshold, desired.calculatedThreshold) match {
+              case (Some(o), Some(d)) => o.calculatedAt.isBefore(d.calculatedAt)
+              case _                  => true
+            }
           lazy val used      = observedStatus.used != desired.used
           lazy val throttled = observedStatus.throttled != desired.throttled
           lazy val threshold =
@@ -130,7 +145,7 @@ package object v1alpha1 {
                   calculatedAt = epoch)
                 expired || notEquivalent
             }
-          used || throttled || threshold
+          invariant && (used || throttled || threshold)
         }
     }
   }

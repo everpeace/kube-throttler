@@ -33,7 +33,7 @@ trait ThrottleControllerLogic {
 
   def calcNextThrottleStatuses(
       targetThrottles: Set[v1alpha1.Throttle],
-      podsInNs: Set[Pod],
+      podsInNs: => Set[Pod],
       at: skuber.Timestamp
     )(implicit
       conf: KubeThrottleConfig

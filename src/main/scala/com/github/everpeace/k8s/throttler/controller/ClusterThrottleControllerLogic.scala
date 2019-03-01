@@ -42,7 +42,7 @@ trait ClusterThrottleControllerLogic {
 
   def calcNextClusterThrottleStatuses(
       targetClusterThrottles: Set[v1alpha1.ClusterThrottle],
-      podsInAllNamespaces: Set[Pod],
+      podsInAllNamespaces: => Set[Pod],
       namespaces: Map[String, Namespace],
       at: skuber.Timestamp
     )(implicit
