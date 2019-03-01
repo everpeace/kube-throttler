@@ -44,9 +44,12 @@ class ThrottleControllerLogicSpec
         )
     }
     val spec = Pod.Spec(
+      nodeName = "somewhere",
       containers = containers
     )
-    Pod("dummy", spec)
+    Pod("dummy", spec).copy(
+      status = phase(Pod.Phase.Running)
+    )
   }
 
   def phase(s: Pod.Phase.Phase) = Option(Pod.Status(Option(s)))
@@ -489,652 +492,709 @@ class ThrottleControllerLogicSpec
       }
     }
     "calcNextThrottleStatuses" - {
-      "should not throttle when total `requests` of running pods can't compare threshold" in {
-        val pod = mkPod(List(resourceRequirements(Map("r" -> Quantity("2"))))).copy(
+      "should not throttle when total `requests` of running/scheduled pods can't compare threshold" in {
+        val basePod = mkPod(List(resourceRequirements(Map("r" -> Quantity("2")))))
+        val runningPod = basePod.copy(
           metadata = commonMeta,
           status = phase(Pod.Phase.Running)
         )
-        val throttle = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
+        val scheduledPod = basePod.copy(
+          metadata = commonMeta,
+          status = phase(Pod.Phase.Pending)
+        )
+        def testOnPod(pod: Pod) = {
+          val throttle = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
                   v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
                 )),
-              threshold = ResourceAmount(
-                resourceRequests = Map("s" -> Quantity("3"))
+                threshold = ResourceAmount(
+                  resourceRequests = Map("s" -> Quantity("3"))
+                )
               )
             )
-          )
-          .withNamespace("default")
-          .withName("t1")
+            .withNamespace("default")
+            .withName("t1")
 
-        val throttleWithActiveOverrides = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
+          val throttleWithActiveOverrides = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
                   v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
                 )),
-              threshold = ResourceAmount(
-                resourceRequests = Map("s" -> Quantity("1"))
-              ),
-              temporaryThresholdOverrides = List(
-                TemporaryThresholdOverride(
-                  begin = at.minusDays(1),
-                  end = at.plusDays(1),
-                  threshold = ResourceAmount(
-                    resourceRequests = Map("s" -> Quantity("3"))
-                  )
-                ))
+                threshold = ResourceAmount(
+                  resourceRequests = Map("s" -> Quantity("1"))
+                ),
+                temporaryThresholdOverrides = List(
+                  TemporaryThresholdOverride(
+                    begin = at.minusDays(1),
+                    end = at.plusDays(1),
+                    threshold = ResourceAmount(
+                      resourceRequests = Map("s" -> Quantity("3"))
+                    )
+                  ))
+              )
             )
-          )
-          .withNamespace("default")
-          .withName("t1")
+            .withNamespace("default")
+            .withName("t1")
 
-        val throttleWithoutActiveOverrides = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
+          val throttleWithoutActiveOverrides = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
                   v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
                 )),
-              threshold = ResourceAmount(
-                resourceRequests = Map("s" -> Quantity("3"))
-              ),
-              temporaryThresholdOverrides = List(
-                TemporaryThresholdOverride(
-                  begin = at.plusDays(1),
-                  end = at.plusDays(2),
-                  threshold = ResourceAmount(
-                    resourceRequests = Map("s" -> Quantity("1"))
-                  )
-                ))
+                threshold = ResourceAmount(
+                  resourceRequests = Map("s" -> Quantity("3"))
+                ),
+                temporaryThresholdOverrides = List(
+                  TemporaryThresholdOverride(
+                    begin = at.plusDays(1),
+                    end = at.plusDays(2),
+                    threshold = ResourceAmount(
+                      resourceRequests = Map("s" -> Quantity("1"))
+                    )
+                  ))
+              )
             )
+            .withNamespace("default")
+            .withName("t1")
+
+          val podsInNs = Set(pod)
+          val expectedStatus = v1alpha1.Throttle.Status(
+            throttled = IsResourceAmountThrottled(
+              resourceRequests = Map("s" -> false)
+            ),
+            used = ResourceAmount(),
+            calculatedThreshold = Option(
+              CalculatedThreshold(ResourceAmount(
+                                    resourceRequests = Map("s" -> Quantity("3"))
+                                  ),
+                                  at))
           )
-          .withNamespace("default")
-          .withName("t1")
 
-        val podsInNs = Set(pod)
-        val expectedStatus = v1alpha1.Throttle.Status(
-          throttled = IsResourceAmountThrottled(
-            resourceRequests = Map("s" -> false)
-          ),
-          used = ResourceAmount(),
-          calculatedThreshold = Option(
-            CalculatedThreshold(ResourceAmount(
-                                  resourceRequests = Map("s" -> Quantity("3"))
-                                ),
-                                at))
-        )
+          val actual = calcNextThrottleStatuses(Set(throttle), podsInNs, at)
+          actual.size shouldBe 1
+          actual.head shouldBe throttle.key -> expectedStatus
 
-        val actual = calcNextThrottleStatuses(Set(throttle), podsInNs, at)
-        actual.size shouldBe 1
-        actual.head shouldBe throttle.key -> expectedStatus
+          val actualWithActiveOverride =
+            calcNextThrottleStatuses(Set(throttleWithActiveOverrides), podsInNs, at)
+          actualWithActiveOverride.size shouldBe 1
+          actualWithActiveOverride.head shouldBe throttleWithActiveOverrides.key -> expectedStatus
 
-        val actualWithActiveOverride =
-          calcNextThrottleStatuses(Set(throttleWithActiveOverrides), podsInNs, at)
-        actualWithActiveOverride.size shouldBe 1
-        actualWithActiveOverride.head shouldBe throttleWithActiveOverrides.key -> expectedStatus
+          val actualWithoutActiveOverride =
+            calcNextThrottleStatuses(Set(throttleWithoutActiveOverrides), podsInNs, at)
+          actualWithoutActiveOverride.size shouldBe 1
+          actualWithoutActiveOverride.head shouldBe throttleWithoutActiveOverrides.key -> expectedStatus
+        }
 
-        val actualWithoutActiveOverride =
-          calcNextThrottleStatuses(Set(throttleWithoutActiveOverrides), podsInNs, at)
-        actualWithoutActiveOverride.size shouldBe 1
-        actualWithoutActiveOverride.head shouldBe throttleWithoutActiveOverrides.key -> expectedStatus
-
+        testOnPod(runningPod)
+        testOnPod(scheduledPod)
       }
 
-      "should throttle when total `requests` of running pods equal to its threshold" in {
-        val pod1 = mkPod(List(resourceRequirements(Map("r" -> Quantity("1"))))).copy(
+      "should throttle when total `requests` of running/scheduled pods equal to its threshold" in {
+        val basePod = mkPod(List(resourceRequirements(Map("r" -> Quantity("1")))))
+        val runningPod = basePod.copy(
           metadata = commonMeta,
           status = phase(Pod.Phase.Running)
         )
-        val pod2 = mkPod(List(resourceRequirements(Map("r" -> Quantity("1"))))).copy(
+        val scheduledPod = basePod.copy(
           metadata = commonMeta.copy(name = "dummy2"),
-          status = phase(Pod.Phase.Running)
+          status = phase(Pod.Phase.Pending)
         )
 
-        val throttle = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
+        def testOnPods(pods: Pod*) = {
+          val throttle = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
                   v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
                 )),
-              threshold = ResourceAmount(
-                resourceRequests = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
+                threshold = ResourceAmount(
+                  resourceRequests = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
+                )
               )
             )
-          )
-          .withNamespace("default")
-          .withName("t1")
+            .withNamespace("default")
+            .withName("t1")
 
-        val throttleWithActiveOverrides = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
+          val throttleWithActiveOverrides = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
                   v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
                 )),
-              threshold = ResourceAmount(
-                resourceRequests = Map("r" -> Quantity("200"), "s" -> Quantity("300"))
-              ),
-              temporaryThresholdOverrides = List(
-                TemporaryThresholdOverride(
-                  begin = at.minusDays(2),
-                  end = at.plusDays(1),
-                  ResourceAmount(
-                    resourceRequests = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
-                  )
+                threshold = ResourceAmount(
+                  resourceRequests = Map("r" -> Quantity("200"), "s" -> Quantity("300"))
                 ),
-                TemporaryThresholdOverride(
-                  begin = at.minusDays(1),
-                  end = at.plusDays(2),
-                  ResourceAmount(
-                    resourceRequests = Map("r" -> Quantity("20"), "s" -> Quantity("30"))
+                temporaryThresholdOverrides = List(
+                  TemporaryThresholdOverride(
+                    begin = at.minusDays(2),
+                    end = at.plusDays(1),
+                    ResourceAmount(
+                      resourceRequests = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
+                    )
+                  ),
+                  TemporaryThresholdOverride(
+                    begin = at.minusDays(1),
+                    end = at.plusDays(2),
+                    ResourceAmount(
+                      resourceRequests = Map("r" -> Quantity("20"), "s" -> Quantity("30"))
+                    )
                   )
                 )
               )
             )
-          )
-          .withNamespace("default")
-          .withName("t1")
+            .withNamespace("default")
+            .withName("t1")
 
-        val throttleWithoutActiveOverrides = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
+          val throttleWithoutActiveOverrides = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
                   v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
                 )),
-              threshold = ResourceAmount(
-                resourceRequests = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
-              ),
-              temporaryThresholdOverrides = List(
-                TemporaryThresholdOverride(
-                  begin = at.plusDays(1),
-                  end = at.plusDays(2),
-                  ResourceAmount(
-                    resourceRequests = Map("r" -> Quantity("20"), "s" -> Quantity("30"))
-                  )
-                ))
+                threshold = ResourceAmount(
+                  resourceRequests = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
+                ),
+                temporaryThresholdOverrides = List(
+                  TemporaryThresholdOverride(
+                    begin = at.plusDays(1),
+                    end = at.plusDays(2),
+                    ResourceAmount(
+                      resourceRequests = Map("r" -> Quantity("20"), "s" -> Quantity("30"))
+                    )
+                  ))
+              )
             )
+            .withNamespace("default")
+            .withName("t1")
+
+          val podsInNs = pods.toSet
+          val expectedStatus = v1alpha1.Throttle.Status(
+            throttled = IsResourceAmountThrottled(
+              resourceRequests = Map("r" -> true, "s" -> false)
+            ),
+            used = ResourceAmount(
+              resourceRequests = Map("r" -> Quantity("2"))
+            ),
+            calculatedThreshold = Option(
+              CalculatedThreshold(ResourceAmount(
+                                    resourceRequests =
+                                      Map("r" -> Quantity("2"), "s" -> Quantity("3"))
+                                  ),
+                                  at))
           )
-          .withNamespace("default")
-          .withName("t1")
 
-        val podsInNs = Set(pod1, pod2)
-        val expectedStatus = v1alpha1.Throttle.Status(
-          throttled = IsResourceAmountThrottled(
-            resourceRequests = Map("r" -> true, "s" -> false)
-          ),
-          used = ResourceAmount(
-            resourceRequests = Map("r" -> Quantity("2"))
-          ),
-          calculatedThreshold = Option(
-            CalculatedThreshold(ResourceAmount(
-                                  resourceRequests = Map("r" -> Quantity("2"), "s" -> Quantity("3"))
-                                ),
-                                at))
-        )
+          val actual = calcNextThrottleStatuses(Set(throttle), podsInNs, at)
+          actual.size shouldBe 1
+          actual.head shouldBe throttle.key -> expectedStatus
 
-        val actual = calcNextThrottleStatuses(Set(throttle), podsInNs, at)
-        actual.size shouldBe 1
-        actual.head shouldBe throttle.key -> expectedStatus
+          val actualWithActiveOverrides =
+            calcNextThrottleStatuses(Set(throttleWithActiveOverrides), podsInNs, at)
+          actualWithActiveOverrides.size shouldBe 1
+          actualWithActiveOverrides.head shouldBe throttleWithActiveOverrides.key -> expectedStatus
 
-        val actualWithActiveOverrides =
-          calcNextThrottleStatuses(Set(throttleWithActiveOverrides), podsInNs, at)
-        actualWithActiveOverrides.size shouldBe 1
-        actualWithActiveOverrides.head shouldBe throttleWithActiveOverrides.key -> expectedStatus
+          val actualWithoutActiveOverrides =
+            calcNextThrottleStatuses(Set(throttleWithoutActiveOverrides), podsInNs, at)
+          actualWithoutActiveOverrides.size shouldBe 1
+          actualWithoutActiveOverrides.head shouldBe throttleWithoutActiveOverrides.key -> expectedStatus
+        }
 
-        val actualWithoutActiveOverrides =
-          calcNextThrottleStatuses(Set(throttleWithoutActiveOverrides), podsInNs, at)
-        actualWithoutActiveOverrides.size shouldBe 1
-        actualWithoutActiveOverrides.head shouldBe throttleWithoutActiveOverrides.key -> expectedStatus
+        testOnPods(runningPod, scheduledPod)
       }
 
-      "should throttle when total 'requests' of running pods exceeds threshold" in {
-        val pod = mkPod(
+      "should throttle when total 'requests' of running/scheduled pods exceeds threshold" in {
+        val basePod = mkPod(
           List(
             resourceRequirements(Map("r" -> Quantity("2")))
-          )).copy(
+          ))
+        val runningPod = basePod.copy(
           metadata = commonMeta,
           status = phase(Pod.Phase.Running)
         )
-        val throttle = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
-                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
-                )),
-              threshold = ResourceAmount(
-                resourceRequests = Map("r" -> Quantity("1"))
-              )
-            )
-          )
-          .withNamespace("default")
-          .withName("t1")
-        val throttleWithActiveOverrides = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
-                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
-                )),
-              threshold = ResourceAmount(
-                resourceRequests = Map("r" -> Quantity("100"))
-              ),
-              temporaryThresholdOverrides = List(
-                TemporaryThresholdOverride(
-                  begin = at.minusDays(1),
-                  end = at.plusDays(1),
-                  ResourceAmount(
-                    resourceRequests = Map("r" -> Quantity("1"))
-                  )
-                ))
-            )
-          )
-          .withNamespace("default")
-          .withName("t1")
-        val throttleWithoutActiveOverrides = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
-                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
-                )),
-              threshold = ResourceAmount(
-                resourceRequests = Map("r" -> Quantity("1"))
-              ),
-              temporaryThresholdOverrides = List(
-                TemporaryThresholdOverride(
-                  begin = at.plusDays(1),
-                  end = at.plusDays(2),
-                  ResourceAmount(
-                    resourceRequests = Map("r" -> Quantity("1"))
-                  )
-                ))
-            )
-          )
-          .withNamespace("default")
-          .withName("t1")
-
-        val podsInNs = Set(pod)
-        val expectedStatus = v1alpha1.Throttle.Status(
-          throttled = IsResourceAmountThrottled(
-            resourceRequests = Map("r" -> true)
-          ),
-          used = ResourceAmount(
-            resourceRequests = Map("r" -> Quantity("2"))
-          ),
-          calculatedThreshold = Option(
-            CalculatedThreshold(ResourceAmount(
-                                  resourceRequests = Map("r" -> Quantity("1"))
-                                ),
-                                at))
+        val scheduledPod = basePod.copy(
+          metadata = commonMeta,
+          status = phase(Pod.Phase.Pending)
         )
 
-        val actual = calcNextThrottleStatuses(Set(throttle), podsInNs, at)
-        actual.size shouldBe 1
-        actual.head shouldBe throttle.key -> expectedStatus
+        def testOnPod(pod: Pod) = {
+          val throttle = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+                threshold = ResourceAmount(
+                  resourceRequests = Map("r" -> Quantity("1"))
+                )
+              )
+            )
+            .withNamespace("default")
+            .withName("t1")
+          val throttleWithActiveOverrides = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+                threshold = ResourceAmount(
+                  resourceRequests = Map("r" -> Quantity("100"))
+                ),
+                temporaryThresholdOverrides = List(
+                  TemporaryThresholdOverride(
+                    begin = at.minusDays(1),
+                    end = at.plusDays(1),
+                    ResourceAmount(
+                      resourceRequests = Map("r" -> Quantity("1"))
+                    )
+                  ))
+              )
+            )
+            .withNamespace("default")
+            .withName("t1")
+          val throttleWithoutActiveOverrides = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+                threshold = ResourceAmount(
+                  resourceRequests = Map("r" -> Quantity("1"))
+                ),
+                temporaryThresholdOverrides = List(
+                  TemporaryThresholdOverride(
+                    begin = at.plusDays(1),
+                    end = at.plusDays(2),
+                    ResourceAmount(
+                      resourceRequests = Map("r" -> Quantity("1"))
+                    )
+                  ))
+              )
+            )
+            .withNamespace("default")
+            .withName("t1")
 
-        val actualWithActiveOverrides =
-          calcNextThrottleStatuses(Set(throttleWithActiveOverrides), podsInNs, at)
-        actualWithActiveOverrides.size shouldBe 1
-        actualWithActiveOverrides.head shouldBe throttleWithActiveOverrides.key -> expectedStatus
+          val podsInNs = Set(pod)
+          val expectedStatus = v1alpha1.Throttle.Status(
+            throttled = IsResourceAmountThrottled(
+              resourceRequests = Map("r" -> true)
+            ),
+            used = ResourceAmount(
+              resourceRequests = Map("r" -> Quantity("2"))
+            ),
+            calculatedThreshold = Option(
+              CalculatedThreshold(ResourceAmount(
+                                    resourceRequests = Map("r" -> Quantity("1"))
+                                  ),
+                                  at))
+          )
 
-        val actualWithougActiveOverrides =
-          calcNextThrottleStatuses(Set(throttleWithoutActiveOverrides), podsInNs, at)
-        actualWithougActiveOverrides.size shouldBe 1
-        actualWithougActiveOverrides.head shouldBe throttleWithoutActiveOverrides.key -> expectedStatus
+          val actual = calcNextThrottleStatuses(Set(throttle), podsInNs, at)
+          actual.size shouldBe 1
+          actual.head shouldBe throttle.key -> expectedStatus
+
+          val actualWithActiveOverrides =
+            calcNextThrottleStatuses(Set(throttleWithActiveOverrides), podsInNs, at)
+          actualWithActiveOverrides.size shouldBe 1
+          actualWithActiveOverrides.head shouldBe throttleWithActiveOverrides.key -> expectedStatus
+
+          val actualWithougActiveOverrides =
+            calcNextThrottleStatuses(Set(throttleWithoutActiveOverrides), podsInNs, at)
+          actualWithougActiveOverrides.size shouldBe 1
+          actualWithougActiveOverrides.head shouldBe throttleWithoutActiveOverrides.key -> expectedStatus
+        }
+
+        testOnPod(runningPod)
+        testOnPod(scheduledPod)
       }
 
-      "should not throttled when total 'requests' of running pods fall below threshold" in {
-        val pod = mkPod(
+      "should not throttled when total 'requests' of running/scheduled pods fall below threshold" in {
+        val basePod = mkPod(
           List(
-            resourceRequirements(Map("r" -> Quantity("5")))
-          )).copy(
+            resourceRequirements(Map("r" -> Quantity("2")))
+          ))
+        val runningPod = basePod.copy(
           metadata = commonMeta,
-          status = phase(Pod.Phase.Succeeded)
+          status = phase(Pod.Phase.Running)
         )
-        val throttle = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
-                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
-                )),
-              threshold = ResourceAmount(
-                resourceRequests = Map("r" -> Quantity("3"))
-              )
-            )
-          )
-          .withNamespace("default")
-          .withName("t1")
-        val throttleWithActiveOverrides = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
-                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
-                )),
-              threshold = ResourceAmount(
-                resourceRequests = Map("r" -> Quantity("3"))
-              )
-            )
-          )
-          .withNamespace("default")
-          .withName("t1")
-        val throttleWithoutActiveOverrides = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
-                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
-                )),
-              threshold = ResourceAmount(
-                resourceRequests = Map("r" -> Quantity("3"))
-              )
-            )
-          )
-          .withNamespace("default")
-          .withName("t1")
-
-        val podsInNs = Set(pod)
-        val expectedStatus = v1alpha1.Throttle.Status(
-          throttled = IsResourceAmountThrottled(
-            resourceRequests = Map("r" -> false)
-          ),
-          used = ResourceAmount(
-            resourceRequests = Map()
-          ),
-          calculatedThreshold = Option(
-            CalculatedThreshold(ResourceAmount(
-                                  resourceRequests = Map("r" -> Quantity("3"))
-                                ),
-                                at))
+        val scheduledPod = basePod.copy(
+          metadata = commonMeta,
+          status = phase(Pod.Phase.Pending)
         )
 
-        val actual = calcNextThrottleStatuses(Set(throttle), podsInNs, at)
-        actual.size shouldBe 1
-        actual.head shouldBe throttle.key -> expectedStatus
+        def testOnPod(pod: Pod) = {
+          val throttle = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+                threshold = ResourceAmount(
+                  resourceRequests = Map("r" -> Quantity("3"))
+                )
+              )
+            )
+            .withNamespace("default")
+            .withName("t1")
+          val throttleWithActiveOverrides = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+                threshold = ResourceAmount(
+                  resourceRequests = Map("r" -> Quantity("1"))
+                ),
+                temporaryThresholdOverrides = List(
+                  TemporaryThresholdOverride(
+                    begin = at.minusDays(1),
+                    end = at.plusDays(1),
+                    ResourceAmount(
+                      resourceRequests = Map("r" -> Quantity("3"))
+                    )
+                  ))
+              )
+            )
+            .withNamespace("default")
+            .withName("t1")
+          val throttleWithoutActiveOverrides = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+                threshold = ResourceAmount(
+                  resourceRequests = Map("r" -> Quantity("3"))
+                ),
+                temporaryThresholdOverrides = List(
+                  TemporaryThresholdOverride(
+                    begin = at.plusDays(1),
+                    end = at.plusDays(2),
+                    ResourceAmount(
+                      resourceRequests = Map("r" -> Quantity("1"))
+                    )
+                  ))
+              )
+            )
+            .withNamespace("default")
+            .withName("t1")
 
-        val actualWithActiveOverrides =
-          calcNextThrottleStatuses(Set(throttleWithActiveOverrides), podsInNs, at)
-        actualWithActiveOverrides.size shouldBe 1
-        actualWithActiveOverrides.head shouldBe throttleWithActiveOverrides.key -> expectedStatus
+          val podsInNs = Set(pod)
+          val expectedStatus = v1alpha1.Throttle.Status(
+            throttled = IsResourceAmountThrottled(
+              resourceRequests = Map("r" -> false)
+            ),
+            used = ResourceAmount(
+              resourceRequests = Map("r" -> Quantity("2"))
+            ),
+            calculatedThreshold = Option(
+              CalculatedThreshold(ResourceAmount(
+                                    resourceRequests = Map("r" -> Quantity("3"))
+                                  ),
+                                  at))
+          )
 
-        val actualWithougActiveOverrides =
-          calcNextThrottleStatuses(Set(throttleWithoutActiveOverrides), podsInNs, at)
-        actualWithougActiveOverrides.size shouldBe 1
-        actualWithougActiveOverrides.head shouldBe throttleWithoutActiveOverrides.key -> expectedStatus
+          val actual = calcNextThrottleStatuses(Set(throttle), podsInNs, at)
+          actual.size shouldBe 1
+          actual.head shouldBe throttle.key -> expectedStatus
+
+          val actualWithActiveOverrides =
+            calcNextThrottleStatuses(Set(throttleWithActiveOverrides), podsInNs, at)
+          actualWithActiveOverrides.size shouldBe 1
+          actualWithActiveOverrides.head shouldBe throttleWithActiveOverrides.key -> expectedStatus
+
+          val actualWithougActiveOverrides =
+            calcNextThrottleStatuses(Set(throttleWithoutActiveOverrides), podsInNs, at)
+          actualWithougActiveOverrides.size shouldBe 1
+          actualWithougActiveOverrides.head shouldBe throttleWithoutActiveOverrides.key -> expectedStatus
+        }
+
+        testOnPod(runningPod)
+        testOnPod(scheduledPod)
       }
 
       "should throttle when total number of running pods exceeds threshold" in {
-        val pod = mkPod(
+        val basePod = mkPod(
           List(
             resourceRequirements(Map("r" -> Quantity("2")))
-          )).copy(
+          ))
+
+        val runningPod = basePod.copy(
           metadata = commonMeta,
           status = phase(Pod.Phase.Running)
         )
-        val throttle = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
+
+        val scheduledPod = basePod.copy(
+          metadata = commonMeta,
+          status = phase(Pod.Phase.Pending)
+        )
+        def testOnPod(pod: Pod) = {
+          val throttle = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
                   v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
                 )),
-              threshold = ResourceAmount(
-                resourceCounts = Option(
-                  ResourceCount(
-                    pod = Option(1)
-                  )),
+                threshold = ResourceAmount(
+                  resourceCounts = Option(
+                    ResourceCount(
+                      pod = Option(1)
+                    )),
+                )
               )
             )
-          )
-          .withNamespace("default")
-          .withName("t1")
-        val throttleWithActiveOverrides = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
+            .withNamespace("default")
+            .withName("t1")
+          val throttleWithActiveOverrides = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
                   v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
                 )),
-              threshold = ResourceAmount(
-                resourceCounts = Option(
-                  ResourceCount(
-                    pod = Option(100)
-                  )),
-              ),
-              temporaryThresholdOverrides = List(
-                TemporaryThresholdOverride(
-                  begin = at.minusDays(1),
-                  end = at.plusDays(1),
-                  ResourceAmount(
-                    resourceCounts = Option(ResourceCount(
-                      pod = Option(1)
-                    ))
-                  )
-                ))
-            )
-          )
-          .withNamespace("default")
-          .withName("t1")
-        val throttleWithoutActiveOverrides = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
-                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
-                )),
-              threshold = ResourceAmount(
-                resourceCounts = Option(
-                  ResourceCount(
-                    pod = Option(1)
-                  )),
-              ),
-              temporaryThresholdOverrides = List(
-                TemporaryThresholdOverride(
-                  begin = at.plusDays(1),
-                  end = at.plusDays(2),
-                  ResourceAmount(
-                    resourceCounts = Option(ResourceCount(
+                threshold = ResourceAmount(
+                  resourceCounts = Option(
+                    ResourceCount(
                       pod = Option(100)
-                    ))
-                  )
-                ))
+                    )),
+                ),
+                temporaryThresholdOverrides = List(
+                  TemporaryThresholdOverride(
+                    begin = at.minusDays(1),
+                    end = at.plusDays(1),
+                    ResourceAmount(
+                      resourceCounts = Option(ResourceCount(
+                        pod = Option(1)
+                      ))
+                    )
+                  ))
+              )
             )
+            .withNamespace("default")
+            .withName("t1")
+          val throttleWithoutActiveOverrides = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+                threshold = ResourceAmount(
+                  resourceCounts = Option(
+                    ResourceCount(
+                      pod = Option(1)
+                    )),
+                ),
+                temporaryThresholdOverrides = List(
+                  TemporaryThresholdOverride(
+                    begin = at.plusDays(1),
+                    end = at.plusDays(2),
+                    ResourceAmount(
+                      resourceCounts = Option(ResourceCount(
+                        pod = Option(100)
+                      ))
+                    )
+                  ))
+              )
+            )
+            .withNamespace("default")
+            .withName("t1")
+
+          val podsInNs = Set(pod)
+          val expectedStatus = v1alpha1.Throttle.Status(
+            throttled = IsResourceAmountThrottled(
+              resourceCounts = Option(
+                IsResourceCountThrottled(
+                  pod = Option(true)
+                )),
+            ),
+            used = ResourceAmount(
+              resourceCounts = Option(
+                ResourceCount(
+                  pod = Option(1)
+                )),
+            ),
+            calculatedThreshold = Option(
+              CalculatedThreshold(ResourceAmount(
+                                    resourceCounts = Option(
+                                      ResourceCount(
+                                        pod = Option(1)
+                                      )),
+                                  ),
+                                  at))
           )
-          .withNamespace("default")
-          .withName("t1")
 
-        val podsInNs = Set(pod)
-        val expectedStatus = v1alpha1.Throttle.Status(
-          throttled = IsResourceAmountThrottled(
-            resourceCounts = Option(
-              IsResourceCountThrottled(
-                pod = Option(true)
-              )),
-          ),
-          used = ResourceAmount(
-            resourceCounts = Option(
-              ResourceCount(
-                pod = Option(1)
-              )),
-          ),
-          calculatedThreshold = Option(
-            CalculatedThreshold(ResourceAmount(
-                                  resourceCounts = Option(
-                                    ResourceCount(
-                                      pod = Option(1)
-                                    )),
-                                ),
-                                at))
-        )
+          val actual = calcNextThrottleStatuses(Set(throttle), podsInNs, at)
+          actual.size shouldBe 1
+          actual.head shouldBe throttle.key -> expectedStatus
 
-        val actual = calcNextThrottleStatuses(Set(throttle), podsInNs, at)
-        actual.size shouldBe 1
-        actual.head shouldBe throttle.key -> expectedStatus
+          val actualWithActiveOverrides =
+            calcNextThrottleStatuses(Set(throttleWithActiveOverrides), podsInNs, at)
+          actualWithActiveOverrides.size shouldBe 1
+          actualWithActiveOverrides.head shouldBe throttleWithActiveOverrides.key -> expectedStatus
 
-        val actualWithActiveOverrides =
-          calcNextThrottleStatuses(Set(throttleWithActiveOverrides), podsInNs, at)
-        actualWithActiveOverrides.size shouldBe 1
-        actualWithActiveOverrides.head shouldBe throttleWithActiveOverrides.key -> expectedStatus
+          val actualWithoutActiveOverrides =
+            calcNextThrottleStatuses(Set(throttleWithoutActiveOverrides), podsInNs, at)
+          actualWithoutActiveOverrides.size shouldBe 1
+          actualWithoutActiveOverrides.head shouldBe throttleWithoutActiveOverrides.key -> expectedStatus
+        }
 
-        val actualWithoutActiveOverrides =
-          calcNextThrottleStatuses(Set(throttleWithoutActiveOverrides), podsInNs, at)
-        actualWithoutActiveOverrides.size shouldBe 1
-        actualWithoutActiveOverrides.head shouldBe throttleWithoutActiveOverrides.key -> expectedStatus
+        testOnPod(runningPod)
+        testOnPod(scheduledPod)
       }
 
-      "should not throttle when total number of running pods fall below threshold" in {
-        val pod = mkPod(
+      "should not throttle when total number of running/scheduled pods fall below threshold" in {
+        val basePod = mkPod(
           List(
             resourceRequirements(Map("r" -> Quantity("2")))
-          )).copy(
+          ))
+        val runningPod = basePod.copy(
           metadata = commonMeta,
           status = phase(Pod.Phase.Running)
         )
-        val throttle = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
-                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
-                )),
-              threshold = ResourceAmount(
-                resourceCounts = Option(ResourceCount(
-                  pod = Option(2)
-                )))
-            )
-          )
-          .withNamespace("default")
-          .withName("t1")
-        val throttleWithActiveOverrides = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
-                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
-                )),
-              threshold = ResourceAmount(
-                resourceCounts = Option(ResourceCount(
-                  pod = Option(200)
-                ))),
-              temporaryThresholdOverrides = List(
-                TemporaryThresholdOverride(
-                  begin = at.minusDays(1),
-                  end = at.plusDays(1),
-                  ResourceAmount(
-                    resourceCounts = Option(ResourceCount(
-                      pod = Option(2)
-                    ))
-                  )
-                ))
-            )
-          )
-          .withNamespace("default")
-          .withName("t1")
-        val throttleWithoutActiveOverrides = v1alpha1
-          .Throttle(
-            "t1",
-            v1alpha1.Throttle.Spec(
-              throttlerName = "kube-throttler",
-              selector = v1alpha1.Throttle.Selector(
-                List(
-                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
-                )),
-              threshold = ResourceAmount(
-                resourceCounts = Option(ResourceCount(
-                  pod = Option(2)
-                ))),
-              temporaryThresholdOverrides = List(
-                TemporaryThresholdOverride(begin = at.plusDays(1),
-                                           end = at.plusDays(2),
-                                           ResourceAmount(
-                                             resourceCounts = Option(ResourceCount(
-                                               pod = Option(200)
-                                             ))
-                                           )))
-            )
-          )
-          .withNamespace("default")
-          .withName("t1")
-
-        val podsInNs = Set(pod)
-        val expectedStatus = v1alpha1.Throttle.Status(
-          throttled = IsResourceAmountThrottled(
-            resourceCounts = Option(
-              IsResourceCountThrottled(
-                pod = Option(false)
-              ))
-          ),
-          used = ResourceAmount(
-            resourceCounts = Option(
-              ResourceCount(
-                pod = Option(1)
-              ))
-          ),
-          calculatedThreshold = Option(
-            CalculatedThreshold(ResourceAmount(
-                                  resourceCounts = Option(
-                                    ResourceCount(
-                                      pod = Option(2)
-                                    ))
-                                ),
-                                at))
+        val scheduledPod = basePod.copy(
+          metadata = commonMeta,
+          status = phase(Pod.Phase.Pending)
         )
 
-        val actual = calcNextThrottleStatuses(Set(throttle), podsInNs, at)
-        actual.size shouldBe 1
-        actual.head shouldBe throttle.key -> expectedStatus
+        def testOnPod(pod: Pod) = {
+          val throttle = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+                threshold = ResourceAmount(
+                  resourceCounts = Option(ResourceCount(
+                    pod = Option(2)
+                  )))
+              )
+            )
+            .withNamespace("default")
+            .withName("t1")
+          val throttleWithActiveOverrides = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+                threshold = ResourceAmount(
+                  resourceCounts = Option(ResourceCount(
+                    pod = Option(200)
+                  ))),
+                temporaryThresholdOverrides = List(
+                  TemporaryThresholdOverride(
+                    begin = at.minusDays(1),
+                    end = at.plusDays(1),
+                    ResourceAmount(
+                      resourceCounts = Option(ResourceCount(
+                        pod = Option(2)
+                      ))
+                    )
+                  ))
+              )
+            )
+            .withNamespace("default")
+            .withName("t1")
+          val throttleWithoutActiveOverrides = v1alpha1
+            .Throttle(
+              "t1",
+              v1alpha1.Throttle.Spec(
+                throttlerName = "kube-throttler",
+                selector = v1alpha1.Throttle.Selector(List(
+                  v1alpha1.Throttle.SelectorItem(LabelSelector(IsEqualRequirement("key", "value")))
+                )),
+                threshold = ResourceAmount(
+                  resourceCounts = Option(ResourceCount(
+                    pod = Option(2)
+                  ))),
+                temporaryThresholdOverrides = List(
+                  TemporaryThresholdOverride(begin = at.plusDays(1),
+                                             end = at.plusDays(2),
+                                             ResourceAmount(
+                                               resourceCounts = Option(ResourceCount(
+                                                 pod = Option(200)
+                                               ))
+                                             )))
+              )
+            )
+            .withNamespace("default")
+            .withName("t1")
 
-        val actualWithActiveOverrides =
-          calcNextThrottleStatuses(Set(throttleWithActiveOverrides), podsInNs, at)
-        actualWithActiveOverrides.size shouldBe 1
-        actualWithActiveOverrides.head shouldBe throttleWithActiveOverrides.key -> expectedStatus
+          val podsInNs = Set(pod)
+          val expectedStatus = v1alpha1.Throttle.Status(
+            throttled = IsResourceAmountThrottled(
+              resourceCounts = Option(
+                IsResourceCountThrottled(
+                  pod = Option(false)
+                ))
+            ),
+            used = ResourceAmount(
+              resourceCounts = Option(
+                ResourceCount(
+                  pod = Option(1)
+                ))
+            ),
+            calculatedThreshold = Option(
+              CalculatedThreshold(ResourceAmount(
+                                    resourceCounts = Option(
+                                      ResourceCount(
+                                        pod = Option(2)
+                                      ))
+                                  ),
+                                  at))
+          )
 
-        val actualWithoutActiveOverrides =
-          calcNextThrottleStatuses(Set(throttleWithoutActiveOverrides), podsInNs, at)
-        actualWithoutActiveOverrides.size shouldBe 1
-        actualWithoutActiveOverrides.head shouldBe throttleWithoutActiveOverrides.key -> expectedStatus
+          val actual = calcNextThrottleStatuses(Set(throttle), podsInNs, at)
+          actual.size shouldBe 1
+          actual.head shouldBe throttle.key -> expectedStatus
+
+          val actualWithActiveOverrides =
+            calcNextThrottleStatuses(Set(throttleWithActiveOverrides), podsInNs, at)
+          actualWithActiveOverrides.size shouldBe 1
+          actualWithActiveOverrides.head shouldBe throttleWithActiveOverrides.key -> expectedStatus
+
+          val actualWithoutActiveOverrides =
+            calcNextThrottleStatuses(Set(throttleWithoutActiveOverrides), podsInNs, at)
+          actualWithoutActiveOverrides.size shouldBe 1
+          actualWithoutActiveOverrides.head shouldBe throttleWithoutActiveOverrides.key -> expectedStatus
+        }
+        testOnPod(runningPod)
+        testOnPod(scheduledPod)
       }
 
       "should generate calculatedThreshold with messages when parse failure exists" in {
