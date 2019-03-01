@@ -388,6 +388,14 @@ Apache License 2.0
 
 # Change Logs
 
+## `0.6.0`
+
+- Changed
+  - `status.used` counts on not only `Running` pod but all _scheduled_ Pod
+    - _scheduled_ means pod assigned to some node but not finished.  `pod.status.phase != (Succeeded or Failed) && spec.nodeName is nonEmpty`
+  - skip unnecessary calculation when pod changed.  It reduces controller's load when pod churn rate is high.
+  - temporary threshold override reconciliation is now performed asynchronously
+
 ## `0.5.3`
 
 all changes are for performance issue.
