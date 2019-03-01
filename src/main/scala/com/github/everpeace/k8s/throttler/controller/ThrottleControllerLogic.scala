@@ -42,10 +42,8 @@ trait ThrottleControllerLogic {
     for {
       throttle <- targetThrottles.toList
 
-      matchedPods = podsInNs.filter(pod => throttle.spec.selector.matches(pod))
-      runningPods = matchedPods
-        .filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
-        .toList
+      matchedPods  = podsInNs.filter(pod => throttle.spec.selector.matches(pod))
+      runningPods  = matchedPods.filter(isScheduledAndNotFinished).toList
       runningTotal = runningPods.==>[List[ResourceAmount]].foldLeft(zeroResourceAmount)(_ add _)
       nextStatus   = throttle.spec.statusFor(runningTotal, at)(v1alpha1.Throttle.Status.apply)
 

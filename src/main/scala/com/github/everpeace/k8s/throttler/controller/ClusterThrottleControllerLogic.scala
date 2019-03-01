@@ -59,9 +59,7 @@ trait ClusterThrottleControllerLogic {
           false
         }
       }
-      runningPods = matchedPods
-        .filter(p => p.status.exists(_.phase.exists(_ == Pod.Phase.Running)))
-        .toList
+      runningPods  = matchedPods.filter(isScheduledAndNotFinished).toList
       runningTotal = runningPods.==>[List[ResourceAmount]].foldLeft(zeroResourceAmount)(_ add _)
       nextStatus = clthrottle.spec.statusFor(runningTotal, at)(
         v1alpha1.ClusterThrottle.Status.apply)

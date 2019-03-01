@@ -25,6 +25,14 @@ package object k8s {
 
   type ObjectKey = (String, String)
 
+  def isScheduledAndNotFinished(pod: Pod): Boolean = {
+    pod.status.nonEmpty && pod.spec.nonEmpty &&
+    pod.status.get.phase.nonEmpty &&
+    pod.status.get.phase.get != Pod.Phase.Succeeded &&
+    pod.status.get.phase.get != Pod.Phase.Failed &&
+    pod.spec.get.nodeName.nonEmpty
+  }
+
   // TODO: change explicit convertion(__.key) to context aware conversion(__.==>)
   implicit val or2key: ObjectResource ==> ObjectKey = new ==>[ObjectResource, ObjectKey] {
     override def to: ObjectResource => ObjectKey = o => o.namespace -> o.name
