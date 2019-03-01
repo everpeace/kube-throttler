@@ -121,6 +121,7 @@ class ThrottleController(
 
         cancelWhenRestart += system.scheduler.schedule(config.reconcileTemporaryThresholdInterval,
                                                        config.reconcileTemporaryThresholdInterval) {
+
           self ! ReconcileClusterThrottlesEvent(_.spec.temporaryThresholdOverrides.nonEmpty,
                                                 "temporaryThresholdOverridden")
         }
@@ -209,7 +210,7 @@ class ThrottleController(
 
   private def _calcNextThrottleStatuses(
       targetThrottles: Set[v1alpha1.Throttle],
-      podsInNs: Set[Pod],
+      podsInNs: => Set[Pod],
       at: skuber.Timestamp
     ): List[(ObjectKey, v1alpha1.Throttle.Status)] = {
     val nextStatuses = calcNextThrottleStatuses(targetThrottles, podsInNs, at)
@@ -247,19 +248,20 @@ class ThrottleController(
   }
 
   def reconcileAllThrottles(at: skuber.Timestamp) =
-    reconcileThrottlesWithFilter(_ => true, "all", at)
-  def reconcileThrottlesWithFilter(
+    reconcileThrottlesWithFilterSync(_ => true, "all", at)
+  def reconcileThrottlesWithFilterSync(
       filter: v1alpha1.Throttle => Boolean,
       filterName: String,
       at: skuber.Timestamp
     ): Future[List[v1alpha1.Throttle]] = {
-    log.info(s"start reconciling statuses of $filterName throttle")
+    log.info(s"reconciling statuses of $filterName throttles")
 
     val throttleStatusesToReconcile = for {
       (namespace, throttles) <- cache.throttles.toImmutable.toList
       targetThrottles        = throttles.filter(filter)
-      pods                   = cache.pods.toImmutable.getOrElse(namespace, Set.empty)
-      thr                    <- _calcNextThrottleStatuses(targetThrottles, pods, at)
+      thr <- _calcNextThrottleStatuses(targetThrottles,
+                                       cache.pods.toImmutable.getOrElse(namespace, Set.empty),
+                                       at)
     } yield thr
 
     val fut = Future.sequence(throttleStatusesToReconcile.map {
@@ -282,26 +284,72 @@ class ThrottleController(
     fut
   }
 
+  def reconcileThrottlesWithFilterAsync(
+      filter: v1alpha1.Throttle => Boolean,
+      filterName: String,
+      at: skuber.Timestamp
+    ) = {
+    log.info(s"sending reconcile requests for $filterName throttles")
+    for {
+      (_, throttles)  <- cache.throttles.toImmutable.toList
+      targetThrottles = throttles.filter(filter)
+      thr             <- targetThrottles
+    } yield {
+      self ! ReconcileOneThrottleEvent(thr.key, at)
+    }
+  }
+
+  def reconcileOneThrottle(key: ObjectKey, at: skuber.Timestamp) = {
+    log.info(s"start reconciling statuses of throttle=$key.")
+
+    val (namespace, _) = key
+    val throttleStatusToReconcile = for {
+      thr <- cache.throttles.get(key).map(List(_)).getOrElse(List.empty)
+      result <- calcNextThrottleStatuses(Set(thr),
+                                         cache.pods.toImmutable.getOrElse(namespace, Set.empty),
+                                         at)
+    } yield result
+
+    if (throttleStatusToReconcile.nonEmpty) {
+      val fut = Future.sequence(throttleStatusToReconcile.map {
+        case (key, st) =>
+          syncThrottle(key, st)
+      })
+      fut.onComplete {
+        case Success(_) =>
+          log.info(s"finished reconciling status of throttle=$key.")
+        case Failure(ex) =>
+          log.error(s"failed reconciling status of throttle=$key by: {}", ex)
+      }
+    } else {
+      log.info(s"throttle=$key status are up-to-date. No updates.")
+    }
+  }
+
   // on detecting some pod change.
   def updateThrottleBecauseOf(pod: Pod, at: skuber.Timestamp): Unit = {
-    val ns               = pod.namespace
-    val podsInNs         = cache.pods.toImmutable.getOrElse(ns, Set.empty[Pod])
-    val allThrottlesInNs = cache.throttles.toImmutable.getOrElse(ns, Set.empty[v1alpha1.Throttle])
+    val ns                    = pod.namespace
+    val allThrottlesInNs      = cache.throttles.toImmutable.getOrElse(ns, Set.empty[v1alpha1.Throttle])
+    val affectedThrottlesInNs = allThrottlesInNs.filter(_.spec.selector.matches(pod))
 
-    for {
-      (key, st) <- _calcNextThrottleStatuses(allThrottlesInNs, podsInNs, at)
-    } yield {
-      syncThrottle(key, st)
+    if (affectedThrottlesInNs.nonEmpty) {
+      for {
+        (key, st) <- _calcNextThrottleStatuses(affectedThrottlesInNs,
+                                               cache.pods.toImmutable.getOrElse(ns, Set.empty[Pod]),
+                                               at)
+      } yield {
+        syncThrottle(key, st)
+      }
     }
   }
 
   // on detecting some throttle change.
   def updateThrottleBecauseOf(throttle: v1alpha1.Throttle, at: skuber.Timestamp): Unit = {
-    val ns       = throttle.namespace
-    val podsInNs = cache.pods.toImmutable.getOrElse(ns, Set.empty[Pod])
-
+    val ns = throttle.namespace
     for {
-      (key, st) <- _calcNextThrottleStatuses(Set(throttle), podsInNs, at)
+      (key, st) <- _calcNextThrottleStatuses(Set(throttle),
+                                             cache.pods.toImmutable.getOrElse(ns, Set.empty[Pod]),
+                                             at)
     } yield {
       syncThrottle(key, st)
     }
@@ -309,7 +357,7 @@ class ThrottleController(
 
   private def _calcNextClusterThrottleStatuses(
       targetClusterThrottles: Set[v1alpha1.ClusterThrottle],
-      podsInAllNamespaces: Set[Pod],
+      podsInAllNamespaces: => Set[Pod],
       namespaces: Map[String, Namespace],
       at: skuber.Timestamp
     ): List[(ObjectKey, v1alpha1.ClusterThrottle.Status)] = {
@@ -349,9 +397,9 @@ class ThrottleController(
   }
 
   def reconcileAllClusterThrottles(at: skuber.Timestamp) =
-    reconcileClusterThrottlesWithFilter(_ => true, "all", at)
+    reconcileClusterThrottlesWithFilterSync(_ => true, "all", at)
 
-  def reconcileClusterThrottlesWithFilter(
+  def reconcileClusterThrottlesWithFilterSync(
       filter: v1alpha1.ClusterThrottle => Boolean,
       filterName: String,
       at: skuber.Timestamp
@@ -361,9 +409,12 @@ class ThrottleController(
     val clusterThrottleStatusesToReconcile = for {
       (_, throttles) <- cache.clusterThrottles.toImmutable.toList
       filtered       = throttles.filter(filter)
-      pods           = cache.pods.toImmutable.values.fold(Set.empty)(_ ++ _)
       namespaces     = cache.namespaces.toImmutable.flatMap(kv => kv._2.map(ns => ns.name -> ns).toMap)
-      clthr          <- _calcNextClusterThrottleStatuses(filtered, pods, namespaces, at)
+      clthr <- _calcNextClusterThrottleStatuses(
+                filtered,
+                cache.pods.toImmutable.values.fold(Set.empty)(_ ++ _),
+                namespaces,
+                at)
     } yield clthr
 
     val fut = Future.sequence(clusterThrottleStatusesToReconcile.map {
@@ -386,20 +437,70 @@ class ThrottleController(
     fut
   }
 
+  def reconcileClusterThrottlesWithFilterAsync(
+      filter: v1alpha1.ClusterThrottle => Boolean,
+      filterName: String,
+      at: skuber.Timestamp
+    ): Unit = {
+    log.info(s"sending reconcile request for $filterName clusterthrottle.")
+    for {
+      (_, clthrottles) <- cache.clusterThrottles.toImmutable.toList
+      filtered         = clthrottles.filter(filter)
+      clthr            <- filtered
+    } yield {
+      self ! ReconcileOneClusterThrottleEvent(clthr.key, at)
+    }
+  }
+
+  def reconcileOneClusterThrottle(key: ObjectKey, at: skuber.Timestamp): Unit = {
+    log.info(s"start reconciling statuses of clusterthrottle=$key.")
+
+    val clusterThrottleStatusToReconcile = for {
+      clthr      <- cache.clusterThrottles.get(key).map(List(_)).getOrElse(List.empty)
+      namespaces = cache.namespaces.toImmutable.flatMap(kv => kv._2.map(ns => ns.name -> ns).toMap)
+      clthr <- calcNextClusterThrottleStatuses(
+                Set(clthr),
+                cache.pods.toImmutable.values.fold(Set.empty)(_ ++ _),
+                namespaces,
+                at)
+    } yield clthr
+
+    if (clusterThrottleStatusToReconcile.nonEmpty) {
+      val fut = Future.sequence(clusterThrottleStatusToReconcile.map {
+        case (key, st) =>
+          syncClusterThrottle(key, st)
+      })
+
+      fut.onComplete {
+        case Success(_) =>
+          log.info(s"finished reconciling statuses of clusterthrottle=$key.")
+        case Failure(ex) =>
+          log.error(s"failed reconciling statuses of clusterthrottle=$key by: {}", ex)
+      }
+    } else {
+      log.info(s"clusterthrottle=$key statuses are up-to-date. No updates.")
+    }
+  }
+
   // on detecting some pod change.
   def updateClusterThrottleBecauseOf(pod: Pod, at: skuber.Timestamp): Unit = {
-    val podsInAllNamespaces = cache.pods.toImmutable.values.fold(Set.empty)(_ ++ _)
-    val allClusterThrottles = cache.clusterThrottles.toImmutable.values.fold(Set.empty)(_ ++ _)
     val namespaces =
       cache.namespaces.toImmutable.flatMap(kv => kv._2.map(ns => ns.name -> ns).toMap)
-
-    for {
-      (key, st) <- _calcNextClusterThrottleStatuses(allClusterThrottles,
-                                                    podsInAllNamespaces,
-                                                    namespaces,
-                                                    at)
-    } yield {
-      syncClusterThrottle(key, st)
+    if (namespaces.contains(pod.namespace)) {
+      val allClusterThrottles = cache.clusterThrottles.toImmutable.values.fold(Set.empty)(_ ++ _)
+      val affectedClusterThrottles =
+        allClusterThrottles.filter(_.spec.selector.matches(pod, namespaces(pod.namespace)))
+      if (affectedClusterThrottles.nonEmpty) {
+        for {
+          (key, st) <- _calcNextClusterThrottleStatuses(
+                        affectedClusterThrottles,
+                        cache.pods.toImmutable.values.fold(Set.empty)(_ ++ _),
+                        namespaces,
+                        at)
+        } yield {
+          syncClusterThrottle(key, st)
+        }
+      }
     }
   }
 
@@ -556,9 +657,11 @@ class ThrottleController(
   }
 
   def reconcileHandler: Receive = {
-    case ReconcileThrottlesEvent(f, fName, at) => reconcileThrottlesWithFilter(f, fName, at)
+    case ReconcileThrottlesEvent(f, fName, at) => reconcileThrottlesWithFilterAsync(f, fName, at)
     case ReconcileClusterThrottlesEvent(f, fName, at) =>
-      reconcileClusterThrottlesWithFilter(f, fName, at)
+      reconcileClusterThrottlesWithFilterAsync(f, fName, at)
+    case ReconcileOneThrottleEvent(key, at)        => reconcileOneThrottle(key, at)
+    case ReconcileOneClusterThrottleEvent(key, at) => reconcileOneClusterThrottle(key, at)
   }
 
   private def latestResourceList[R <: ObjectResource](
@@ -661,10 +764,16 @@ object ThrottleController {
       filter: v1alpha1.Throttle => Boolean,
       filterName: String,
       at: skuber.Timestamp = java.time.ZonedDateTime.now())
+  case class ReconcileOneThrottleEvent(
+      key: ObjectKey,
+      at: skuber.Timestamp = java.time.ZonedDateTime.now())
 
   case class ReconcileClusterThrottlesEvent(
       filter: v1alpha1.ClusterThrottle => Boolean,
       filterName: String,
+      at: skuber.Timestamp = java.time.ZonedDateTime.now())
+  case class ReconcileOneClusterThrottleEvent(
+      key: ObjectKey,
       at: skuber.Timestamp = java.time.ZonedDateTime.now())
 
   // messages for controls
