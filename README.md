@@ -388,6 +388,11 @@ Apache License 2.0
 
 # Change Logs
 
+## `0.7.0`
+
+- Added
+  - support `Preempt` scheduler extender at `/preempt_if_not_throttled` endpoint in order to prevent from undesired preemptions when high priority pods are throttled.
+
 ## `0.6.0`
 
 - Changed
