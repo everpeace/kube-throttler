@@ -161,15 +161,17 @@ object ThrottleRequestHandler {
   case object IsReady
 
   case class CheckThrottleRequest(pod: Pod)
-  case object NotReady
+  sealed trait CheckThrottleResponse
+  case object NotReady extends CheckThrottleResponse
   case class Throttled(
       pod: Pod,
       activeThrottles: Set[v1alpha1.Throttle],
       activeClusterThrottles: Set[v1alpha1.ClusterThrottle],
       insufficientThrottles: Set[v1alpha1.Throttle],
       insufficientClusterThrottles: Set[v1alpha1.ClusterThrottle])
+      extends CheckThrottleResponse
 
-  case class NotThrottled(pod: Pod)
+  case class NotThrottled(pod: Pod) extends CheckThrottleResponse
 
   def props() = Props(new ThrottleRequestHandler())
 }

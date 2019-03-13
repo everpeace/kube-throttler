@@ -29,7 +29,7 @@ import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.{IsResourceAmountThrottled, ResourceAmount}
 import com.github.everpeace.util.ActorWatcher
 import de.heikoseeberger.akkahttpplayjson.PlayJsonSupport
-import io.k8s.pkg.scheduler.api.v1.ExtenderFilterResult
+import io.k8s.pkg.scheduler.api.v1._
 import io.k8s.pkg.scheduler.api.v1.Implicits._
 import org.scalatest.{FreeSpec, Matchers}
 import skuber.Resource.Quantity
@@ -147,9 +147,9 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
     "dummyThrottleController"
   )
 
-  val checkThrottleRoute = new Routes(dummyThrottleController,
-                                      system.actorOf(ActorWatcher.props(dummyThrottleController)),
-                                      Timeout(1 second)).checkThrottle
+  val throttlerRoutes = new Routes(dummyThrottleController,
+                                   system.actorOf(ActorWatcher.props(dummyThrottleController)),
+                                   Timeout(1 second)).all
 
   "check_throttle" - {
     "should return ExtenderFilterResult without FailedNodes and Errors" in {
@@ -182,7 +182,7 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
                                   ByteString(requestBody)
                                 ))
 
-      request ~> checkThrottleRoute ~> check {
+      request ~> throttlerRoutes ~> check {
         status shouldBe StatusCodes.OK
         responseAs[ExtenderFilterResult] shouldBe ExtenderFilterResult(
           nodenames = List("minikube"),
@@ -226,7 +226,7 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
                                   ByteString(requestBody)
                                 ))
 
-      request ~> checkThrottleRoute ~> check {
+      request ~> throttlerRoutes ~> check {
         status shouldBe StatusCodes.OK
         responseAs[ExtenderFilterResult] shouldBe ExtenderFilterResult(
           nodenames = List.empty,
@@ -278,7 +278,7 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
       val messageHead =
         """exception occurred in checking throttles for pod (default,timeout): Ask timed out on"""
 
-      request ~> checkThrottleRoute ~> check {
+      request ~> throttlerRoutes ~> check {
         status shouldBe StatusCodes.OK
         val result = responseAs[ExtenderFilterResult]
         result.nodenames shouldBe List.empty
@@ -293,6 +293,118 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
         result.failedNodes.size shouldBe 1
         result.failedNodes("minikube") should startWith(messageHead)
         result.error.get should startWith(messageHead)
+      }
+    }
+  }
+
+  "preempt" - {
+    "should return ExtenderPreemptionResult with empty victims when throttled" in {
+      val requestBody = """|{
+                                         |  "Pod": {
+                                         |    "metadata": {
+                                         |      "name": "throttled",
+                                         |      "namespace": "default"
+                                         |    }
+                                         |  },
+                                         |  "NodeNameToVictims": {
+                                         |    "node1": {
+                                         |      "Pods": [{
+                                         |        "metadata": {
+                                         |          "name": "pod-rzgq6",
+                                         |          "namespace": "default",
+                                         |          "uid": "xxx",
+                                         |          "labels": {
+                                         |            "throttle": "t1"
+                                         |          }
+                                         |        }
+                                         |      }],
+                                         |      "NumPDBViolations": 0
+                                         |    }
+                                         |  }
+                                         |}
+                                      """.stripMargin
+      val request = HttpRequest(HttpMethods.POST,
+                                "/preempt_if_not_throttled",
+                                entity = HttpEntity(
+                                  MediaTypes.`application/json`,
+                                  ByteString(requestBody)
+                                ))
+      request ~> throttlerRoutes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[ExtenderPreemptionResult] shouldBe ExtenderPreemptionResult(Map.empty)
+      }
+    }
+
+    "should return ExtenderPreemptionResult with passed victims when not-throttled" in {
+      val requestBody = """|{
+                           |  "Pod": {
+                           |    "metadata": {
+                           |      "name": "not-throttled",
+                           |      "namespace": "default"
+                           |    }
+                           |  },
+                           |  "NodeNameToVictims": {
+                           |    "node1": {
+                           |      "Pods": [{
+                           |        "metadata": {
+                           |          "name": "pod-rzgq6",
+                           |          "uid": "xxx",
+                           |          "labels": {
+                           |            "throttle": "t1"
+                           |          }
+                           |        }
+                           |      }],
+                           |      "NumPDBViolations": 0
+                           |    }
+                           |  }
+                           |}
+                        """.stripMargin
+      val request = HttpRequest(HttpMethods.POST,
+                                "/preempt_if_not_throttled",
+                                entity = HttpEntity(
+                                  MediaTypes.`application/json`,
+                                  ByteString(requestBody)
+                                ))
+      request ~> throttlerRoutes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[ExtenderPreemptionResult] shouldBe ExtenderPreemptionResult(
+          Map("node1" -> MetaVictims(List(MetaPod("xxx")), 0)))
+      }
+    }
+    "should return InternalServerError when Error" in {
+      val requestBody = """|{
+                           |  "Pod": {
+                           |    "metadata": {
+                           |      "name": "timeout",
+                           |      "namespace": "default"
+                           |    }
+                           |  },
+                           |  "NodeNameToVictims": {
+                           |    "node1": {
+                           |      "Pods": [{
+                           |        "metadata": {
+                           |          "name": "pod-rzgq6",
+                           |          "uid": "xxx",
+                           |          "labels": {
+                           |            "throttle": "t1"
+                           |          }
+                           |        }
+                           |      }],
+                           |      "NumPDBViolations": 0
+                           |    }
+                           |  }
+                           |}
+                        """.stripMargin
+      val request = HttpRequest(HttpMethods.POST,
+                                "/preempt_if_not_throttled",
+                                entity = HttpEntity(
+                                  MediaTypes.`application/json`,
+                                  ByteString(requestBody)
+                                ))
+      implicit val timeout = RouteTestTimeout(3.seconds.dilated)
+      request ~> throttlerRoutes ~> check {
+        status shouldBe StatusCodes.InternalServerError
+        responseAs[String] shouldBe "{}"
       }
     }
   }

@@ -32,7 +32,7 @@ data:
         "urlPrefix": "http://kube-throttler.kube-throttler/",
         "filterVerb": "check_throttle",
         "prioritizeVerb": "",
-        "preemptVerb": "",
+        "preemptVerb": "preempt_if_not_throttled",
         "bindVerb": "",
         "weight": 1,
         "enableHttps": false,
@@ -63,7 +63,7 @@ spec:
           name: my-scheduler-config
       containers:
       - name: my-scheduler-ctr
-        image: gcr.io/google_containers/hyperkube:v1.11.1
+        image: gcr.io/google_containers/hyperkube:v1.12.1
         imagePullPolicy: IfNotPresent
         args:
         - kube-scheduler
