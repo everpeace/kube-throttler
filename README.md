@@ -52,7 +52,7 @@ This creates:
         "urlPrefix": "http://extender.kube-throttler/",
         "filterVerb": "check_throttle",
         "prioritizeVerb": "",
-        "preemptVerb": "",
+        "preemptVerb": "preempt_if_not_throttled",
         "bindVerb": "",
         "weight": 1,
         "enableHttps": false,

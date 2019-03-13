@@ -32,6 +32,15 @@ package object v1 {
       failedNodes: Map[String, String] = Map.empty,
       error: Option[String] = None)
 
+  case class MetaPod(uid: String)
+  case class Victims(pods: List[Pod], numPDBViolations: Int)
+  case class MetaVictims(pods: List[MetaPod], numPDBViolations: Int)
+  case class ExtenderPreemptionArgs(
+      pod: Pod,
+      nodeNameToVictims: Map[String, Victims],
+      nodeNameToMetaVictims: Map[String, MetaVictims])
+  case class ExtenderPreemptionResult(nodeNameToMetaVictims: Map[String, MetaVictims])
+
   object Implicits {
     implicit val nodeFormat: Format[Node] = (
       (JsPath \ "metadata").lazyFormat[ObjectMeta](objectMetaFormat) and
@@ -49,17 +58,37 @@ package object v1 {
       unlift((nl: NodeList) => Option(nl.metadata, nl.items))
     )
     implicit val extenderArgsFmt: Format[ExtenderArgs] = (
-      (JsPath \ "Pod").format[Pod](podFormat) and
+      (JsPath \ "Pod").format[Pod] and
         (JsPath \ "Nodes").formatNullable[NodeList](nodeListFormat) and
         (JsPath \ "NodeNames").formatMaybeEmptyList[String]
-    )(ExtenderArgs.apply _, unlift(ExtenderArgs.unapply))
+    )(ExtenderArgs.apply, unlift(ExtenderArgs.unapply))
 
     implicit val extenderFilterResult: Format[ExtenderFilterResult] = (
       (JsPath \ "Nodes").formatNullable[NodeList](nodeListFormat) and
         (JsPath \ "NodeNames").formatMaybeEmptyList[String] and
         (JsPath \ "FailedNodes").formatMaybeEmptyMap[String] and
         (JsPath \ "Error").formatNullable[String]
-    )(ExtenderFilterResult.apply _, unlift(ExtenderFilterResult.unapply))
+    )(ExtenderFilterResult.apply, unlift(ExtenderFilterResult.unapply))
+
+    implicit val metaPodFmt: Format[MetaPod] =
+      (JsPath \ "UID").format[String].inmap(MetaPod.apply, unlift(MetaPod.unapply))
+    implicit val victimsFmt: Format[Victims] = (
+      (JsPath \ "Pods").formatMaybeEmptyList[Pod] and
+        (JsPath \ "NumPDBViolations").format[Int]
+    )(Victims.apply, unlift(Victims.unapply))
+    implicit val metaVictimsFmt: Format[MetaVictims] = (
+      (JsPath \ "Pods").formatMaybeEmptyList[MetaPod] and
+        (JsPath \ "NumPDBViolations").format[Int]
+    )(MetaVictims.apply, unlift(MetaVictims.unapply))
+    implicit val extenderPreemptionArgsFmt: Format[ExtenderPreemptionArgs] = (
+      (JsPath \ "Pod").format[Pod] and
+        (JsPath \ "NodeNameToVictims").formatMaybeEmptyMap[Victims] and
+        (JsPath \ "NodeNameToMetaVictims").formatMaybeEmptyMap[MetaVictims]
+    )(ExtenderPreemptionArgs.apply, unlift(ExtenderPreemptionArgs.unapply))
+    implicit val extenderPreemptionResultFmt: Format[ExtenderPreemptionResult] =
+      (JsPath \ "NodeNameToMetaVictims")
+        .formatMaybeEmptyMap[MetaVictims]
+        .inmap(ExtenderPreemptionResult.apply, unlift(ExtenderPreemptionResult.unapply))
   }
 
 }

@@ -39,6 +39,25 @@ class ExtenderFormatSpec extends FreeSpec with Matchers {
       Json.toJson(filterResultJson.validate[ExtenderFilterResult].get) shouldBe filterResultJson
     }
   }
+
+  "Format[ExtenderPreemptionArgs]" - {
+    "can unmarshal jsons without 'apiVersion' and 'kind'" in {
+      preemptArgJson.validate[ExtenderFilterResult].isSuccess shouldBe true
+    }
+    "can marshal ExtenderPreemptionArgs to json without 'apiVersion' and 'kind" in {
+      val v = preemptArgJson.validate[ExtenderPreemptionArgs]
+      Json.toJson(v.get) shouldBe preemptArgJson
+    }
+  }
+
+  "Format[ExtenderPreemptionResult]" - {
+    "can unmarshal jsons without 'apiVersion' and 'kind'" in {
+      preemptResultJson.validate[ExtenderFilterResult].isSuccess shouldBe true
+    }
+    "can marshal ExtenderPreemptionResult to json without 'apiVersion' and 'kind" in {
+      Json.toJson(preemptResultJson.validate[ExtenderPreemptionResult].get) shouldBe preemptResultJson
+    }
+  }
 }
 
 object ExtenderFormatSpec {
@@ -82,4 +101,45 @@ object ExtenderFormatSpec {
        |  "Error": "error"
        |}
        |""".stripMargin)
+
+  val preemptArgJson = Json.parse("""|{
+      |  "Pod": {
+      |    "metadata": {
+      |      "name": "pod-rzgq6",
+      |      "labels": {
+      |        "throttle": "t1"
+      |      }
+      |    }
+      |  },
+      |  "NodeNameToVictims": {
+      |    "node1": {
+      |      "Pods": [{
+      |        "metadata": {
+      |          "name": "pod-rzgq6",
+      |          "labels": {
+      |            "throttle": "t1"
+      |          }
+      |        }
+      |      }],
+      |      "NumPDBViolations": 0
+      |    }
+      |  },
+      |  "NodeNameToMetaVictims": {
+      |    "node1": {
+      |      "Pods": [{ "UID": "xxx" }],
+      |      "NumPDBViolations": 0
+      |    }
+      |  }
+      |}
+    """.stripMargin)
+
+  val preemptResultJson = Json.parse("""|{
+      |  "NodeNameToMetaVictims":{
+      |    "node1": {
+      |      "Pods": [{ "UID": "xxx" }],
+      |      "NumPDBViolations": 0
+      |    }
+      |  }
+      |}
+    """.stripMargin)
 }
