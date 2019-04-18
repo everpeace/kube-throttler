@@ -388,6 +388,10 @@ Apache License 2.0
 
 # Change Logs
 
+## `0.7.1`
+- Fixed
+  - reduced memory usage for large cluster.  `kube-throttler` does not cache completed(`status.phase=Succeeded|Failed`) pods anymore.  
+
 ## `0.7.0`
 
 - Added
