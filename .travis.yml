@@ -6,10 +6,10 @@ scala:
 - 2.12.6
 jdk:
 - openjdk8
-addons:
-  apt:
-    packages:
-    - oracle-java8-installer
+#addons:
+#  apt:
+#    packages:
+#    - oracle-java8-installer
 cache:
   directories:
   - "$HOME/.ivy2/cache"

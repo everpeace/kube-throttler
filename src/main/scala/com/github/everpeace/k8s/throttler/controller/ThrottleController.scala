@@ -65,6 +65,9 @@ class ThrottleController(
 
   private val isPodResponsible = (pod: Pod) =>
     schedulerName(pod).exists(n => config.targetSchedulerNames.contains(n))
+  private val isPodCompleted = (pod: Pod) =>
+    pod.status.exists(st =>
+      st.phase.contains(Pod.Phase.Succeeded) || st.phase.contains(Pod.Phase.Failed))
   private val isThrottleResponsible = (thr: v1alpha1.Throttle) =>
     config.throttlerName == thr.spec.throttlerName
   private val isClusterThrottleResponsible = (clthr: v1alpha1.ClusterThrottle) =>
@@ -90,10 +93,10 @@ class ThrottleController(
     val now = java.time.ZonedDateTime.now()
     val syncAll = for {
       // init cache
-      _ <- cache.namespaces.init
-      _ <- cache.clusterThrottles.init
-      _ <- cache.throttles.init
-      _ <- cache.pods.init
+      _ <- cache.namespaces.init()
+      _ <- cache.clusterThrottles.init()
+      _ <- cache.throttles.init()
+      _ <- cache.pods.init(p => !isPodCompleted(p)) // completed pods need not to cache
       // reconcile all throttles/clthrottles
       _ <- reconcileAllClusterThrottles(at = now)
       _ <- reconcileAllThrottles(at = now)
@@ -550,7 +553,12 @@ class ThrottleController(
         case EventType.DELETED =>
           cache.pods.removeThen(e._object)(_)
         case _ =>
-          cache.pods.updateThen(e._object)(_)
+          // Completed pods is not needed anymore
+          if (isPodCompleted(e._object)) {
+            cache.pods.removeThen(e._object)(_)
+          } else {
+            cache.pods.addOrUpdateThen(e._object)(_)
+          }
       }
       updateOrRemoveThen { pod =>
         updateThrottleBecauseOf(pod, at)
@@ -571,7 +579,7 @@ class ThrottleController(
         case EventType.DELETED =>
           cache.clusterThrottles.removeThen(e._object)(_)
         case _ =>
-          cache.clusterThrottles.updateThen(e._object)(_)
+          cache.clusterThrottles.addOrUpdateThen(e._object)(_)
       }
       updateOrRemoveCacheThen { clusterThrottle =>
         if (prev.isEmpty || prev.get.spec != clusterThrottle.spec) {
@@ -602,7 +610,7 @@ class ThrottleController(
         case EventType.DELETED =>
           cache.throttles.removeThen(e._object)(_)
         case _ =>
-          cache.throttles.updateThen(e._object)(_)
+          cache.throttles.addOrUpdateThen(e._object)(_)
       }
       updateOrRemoveCacheThen { throttle =>
         if (prev.isEmpty || prev.get.spec != throttle.spec) {
@@ -632,7 +640,7 @@ class ThrottleController(
         case EventType.DELETED =>
           cache.namespaces.removeThen(e._object)(_)
         case _ =>
-          cache.namespaces.updateThen(e._object)(_)
+          cache.namespaces.addOrUpdateThen(e._object)(_)
       }
       updateOrRemoveThen { namespace =>
         updateClusterThrottleBecauseOf(namespace, at)
@@ -683,7 +691,8 @@ class ThrottleController(
         mutable.Map.empty[String, mutable.Map[ObjectKey, R]]) {
 
     def init(
-        implicit
+        initFilter: R => Boolean = _ => true
+      )(implicit
         k8s: K8SRequestContext,
         ec: ExecutionContext,
         fmt: Format[R],
@@ -699,15 +708,15 @@ class ThrottleController(
         latestResourceVersion = resourceList.metadata map {
           _.resourceVersion
         }
-        _ = resourceList.items.filter(isResponsible).foreach(update)
+        _ = resourceList.items.filter(r => isResponsible(r) && initFilter(r)).foreach(addOrUpdate)
         _ <- Future { log.info("finished syncing {} status", rd.spec.names.singular) }
       } yield latestResourceVersion
     }
 
-    def update(r: R): Unit = updateThen(r)(_ => ())
-    def remove(r: R): Unit = removeThen(r)(_ => ())
+    def addOrUpdate(r: R): Unit = addOrUpdateThen(r)(_ => ())
+    def remove(r: R): Unit      = removeThen(r)(_ => ())
 
-    def updateThen(r: R)(f: R => Unit): Unit = if (isResponsible(r)) {
+    def addOrUpdateThen(r: R)(f: R => Unit): Unit = if (isResponsible(r)) {
       val key @ (ns, _) = r.key
 
       if (!map.contains(ns)) {
