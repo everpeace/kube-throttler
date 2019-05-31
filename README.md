@@ -146,22 +146,22 @@ spec:
       cpu: 200m
       memory: "1Gi"
       nvidia.com/gpu: "2"
-    temporaryThresholdOverrides:
-    # begin/end should be a datetime string in RFC3339
-    # each entry is active when t in [begin, end]
-    # if multiple entries are active all active threshold override 
-    # will be merged (first override lives for each resource count/request).
-    - begin: 2019-02-01T00:00:00+09:00
-      end: 2019-03-01T00:00:00+09:00
-      threshold:
-        resourceRequests:
-          cpu: "5"
-    - begin: 2019-02-15T00:00:00+09:00
-      end: 2019-03-01T00:00:00+09:00
-      threshold:
-        resourceRequests:
-          cpu: "1"
-          memory: "8Gi"
+  temporaryThresholdOverrides:
+  # begin/end should be a datetime string in RFC3339
+  # each entry is active when t in [begin, end]
+  # if multiple entries are active all active threshold override 
+  # will be merged (first override lives for each resource count/request).
+  - begin: 2019-02-01T00:00:00+09:00
+    end: 2019-03-01T00:00:00+09:00
+    threshold:
+      resourceRequests:
+        cpu: "5"
+  - begin: 2019-02-15T00:00:00+09:00
+    end: 2019-03-01T00:00:00+09:00
+    threshold:
+      resourceRequests:
+        cpu: "1"
+        memory: "8Gi"
 ```
 
 `temporaryTresholds` can define multiple override entries.  Each entry is active when current time is in `[begin, end]` (inclusive on both end).  If multiple entries are active, all active overrides will be merged. First override lives for each resource count/request.  For above example, if current time was '2019-02-16T00:00:00+09:00', both overrides are active and merged threshold will be:
