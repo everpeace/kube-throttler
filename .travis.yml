@@ -27,6 +27,3 @@ branches:
   - develop
   # release tags
   - "/^v?[0-9\\.]+/"
-env:
-  global:
-  - secure: "EwRvfEl5ZLFHReqw9VSZjELD9E+b6L/grCwDxl4NsWFpP/jE0pgEGp5d/hieQNbu/6py5u78p3mD+2ZSWyZn/5j3TkCcyeScpFu1YIiQn2MM7BqkM36WbXt820QIcyCKsP+I2uf9VSG0ZYosfeuh0m77xT8dSu3Myycf2M3rY1SIp+9yBBS3jtN4U07hgQ+375jyEC5iX/O5ZSO8VJtHHMHrD8rlLWbc6tVuz7qOfiEJ2movXlxvr6AS6a0HneneO5N1TAJk409fCxLp3GwguT+uKhsg3XQVISylibb7HIZG9g5ukLGA+18jLMn9TuE8emStNQ3GWCDsEEpSIB0f6nupuZYvmwWcjue55/GbUH7oSK/6xJjIVoYxgdlLFAuI3StVByaa6tm5+wvrHcnxBctxBt2Q7jZDNNtL7i+t7bHQQj5Bdq2nyqIXc/68yo7BQZDpGZNoxF2+RtzxzlX1fjhjIazxJpUBGK7ALRGHIAEaJPzb3pi4tk8ssOVib9aEaBkmtFZODr7g36xCWsFJufg5S31E+mG7Tp2or1iIWYYSi4d1uKUDxX2IzyLHebWralkljyaXhgbPVWXmaYkUSuIaX6JyTLDipudwCQriafiv3JdOKkMn1ixJIN+IsN01wj8SoH6ICBE1aFTtBM60dke1mF69/Vk/+Vk1ifQGKDQ="
