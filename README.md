@@ -388,6 +388,11 @@ Apache License 2.0
 
 # Change Logs
 
+## `0.7.2`
+- Changed
+  - upgraded [`skuber`](https://github.com/doriordan/skuber) version to `v2.2.0`
+  - periodic throttle reconciliation which limits those which really need to
+
 ## `0.7.1`
 - Fixed
   - reduced memory usage for large cluster.  `kube-throttler` does not cache completed(`status.phase=Succeeded|Failed`) pods anymore.  
