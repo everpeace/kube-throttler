@@ -6,10 +6,6 @@ scala:
 - 2.12.6
 jdk:
 - openjdk8
-#addons:
-#  apt:
-#    packages:
-#    - oracle-java8-installer
 cache:
   directories:
   - "$HOME/.ivy2/cache"
@@ -33,4 +29,4 @@ branches:
   - "/^v?[0-9\\.]+/"
 env:
   global:
-    secure: Ls7ItD8K8WH9pWQXWodmhuHR4oDdKKXf88/woThC5g5ZyNnLeEk7tL2X38hiH17DdF/nX7p86i0RKFk7FsJ2QBnkf7O5zjAOee3QuE5fsvmMojlA8A+pfNV4Dd5GHyFQWPdpZguFzns6U/PCogkJ36/+sfpd2whYrRRzfKS6mj6CJ6pjaNxvFHHAATHectS4wk/tiEIQl04ClM2pDKhTXHKD2x2fKIhND5FxAnQUnCmNt6I7vyNdHVvl+bo92Oga+JTo5u79B3rHo1FcrA8ClX4Z9HHZKpEJCo3nB/MgpkC0eeqhgoridzvqqR85S0SyADOWTyX/9y4dopeIefRav4+IYOIsC617mOALqmQBi+k23CK9rrroVLiv3c+4htF1NPdJ+9rVOGbUY0fjk8u1ttQGIvB4GlCWwbuSQVG8w8O7wcNq3B1iWtvy9crU5SL361t6sK2ij/xTZu1iSS+ISSsQ/GewIc+y0IcMzJPtUMpWSKNPFQ/NpWqIcj2RqfPGMFsGs6IYbXSKnoVWrZFj3OkF454g151au3QsYCUOulTqAsL+sA0B3H+Db8IA0OHJ+dVbBP74qJDH2vzRLeL9e5mFXubnm45Xzg46PtsVoNGXEFoLPEb3nfStMyM+ZTLKb6fGDlcxEHnoBX+nLgoGlU41BsDTH+/KC9HQWjVV+ng=
+  - secure: "EwRvfEl5ZLFHReqw9VSZjELD9E+b6L/grCwDxl4NsWFpP/jE0pgEGp5d/hieQNbu/6py5u78p3mD+2ZSWyZn/5j3TkCcyeScpFu1YIiQn2MM7BqkM36WbXt820QIcyCKsP+I2uf9VSG0ZYosfeuh0m77xT8dSu3Myycf2M3rY1SIp+9yBBS3jtN4U07hgQ+375jyEC5iX/O5ZSO8VJtHHMHrD8rlLWbc6tVuz7qOfiEJ2movXlxvr6AS6a0HneneO5N1TAJk409fCxLp3GwguT+uKhsg3XQVISylibb7HIZG9g5ukLGA+18jLMn9TuE8emStNQ3GWCDsEEpSIB0f6nupuZYvmwWcjue55/GbUH7oSK/6xJjIVoYxgdlLFAuI3StVByaa6tm5+wvrHcnxBctxBt2Q7jZDNNtL7i+t7bHQQj5Bdq2nyqIXc/68yo7BQZDpGZNoxF2+RtzxzlX1fjhjIazxJpUBGK7ALRGHIAEaJPzb3pi4tk8ssOVib9aEaBkmtFZODr7g36xCWsFJufg5S31E+mG7Tp2or1iIWYYSi4d1uKUDxX2IzyLHebWralkljyaXhgbPVWXmaYkUSuIaX6JyTLDipudwCQriafiv3JdOKkMn1ixJIN+IsN01wj8SoH6ICBE1aFTtBM60dke1mF69/Vk/+Vk1ifQGKDQ="
