@@ -85,6 +85,18 @@ package object v1alpha1 {
         isThrottled.resourceCounts.flatMap(_.pod).getOrElse(false) || isThrottled.resourceRequests
           .exists(_._2)
       }
+
+      def hasTemporaryOverridesToReconcile: Boolean = {
+        val isTargetOpt = for {
+          st                  <- abstThr.status
+          calculatedThreshold <- st.calculatedThreshold
+          lastCalculatedAt    = calculatedThreshold.calculatedAt
+        } yield {
+          abstThr.spec.temporaryThresholdOverrides.exists(o =>
+            lastCalculatedAt.isBefore(o.end) || lastCalculatedAt.isEqual(o.end))
+        }
+        isTargetOpt.getOrElse(abstThr.spec.temporaryThresholdOverrides.nonEmpty)
+      }
     }
 
     implicit class SpecSyntax[S](spec: Spec[S]) {

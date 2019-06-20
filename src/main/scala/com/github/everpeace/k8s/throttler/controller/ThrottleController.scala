@@ -125,13 +125,13 @@ class ThrottleController(
         cancelWhenRestart += system.scheduler.schedule(config.reconcileTemporaryThresholdInterval,
                                                        config.reconcileTemporaryThresholdInterval) {
 
-          self ! ReconcileClusterThrottlesEvent(_.spec.temporaryThresholdOverrides.nonEmpty,
-                                                "temporaryThresholdOverridden")
+          self ! ReconcileClusterThrottlesEvent(_.hasTemporaryOverridesToReconcile,
+                                                "hasTemporaryThresholdOverridesToReconcile")
         }
         cancelWhenRestart += system.scheduler.schedule(config.reconcileTemporaryThresholdInterval,
                                                        config.reconcileTemporaryThresholdInterval) {
-          self ! ReconcileThrottlesEvent(_.spec.temporaryThresholdOverrides.nonEmpty,
-                                         "temporaryThresholdOverridden")
+          self ! ReconcileThrottlesEvent(_.hasTemporaryOverridesToReconcile,
+                                         "hasTemporaryThresholdOverridesToReconcile")
         }
 
       case scala.util.Failure(th) =>
