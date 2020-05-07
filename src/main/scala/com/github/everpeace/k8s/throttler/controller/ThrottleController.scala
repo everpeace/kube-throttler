@@ -83,7 +83,9 @@ class ThrottleController(
 
   override def preRestart(reason: Throwable, message: Option[Any]): Unit = {
     cancelWhenRestart.foreach(cancellable =>
-      Try { if (!cancellable.isCancelled) cancellable.cancel() })
+      Try {
+        if (!cancellable.isCancelled) cancellable.cancel()
+    })
     super.preRestart(reason, message)
   }
 
@@ -384,8 +386,10 @@ class ThrottleController(
     val fut = for {
       latest    <- k8s.get[v1alpha1.ClusterThrottle](n)
       nextState = latest.copy(status = Option(st))
-      _         <- Future { log.info("updating clusterthrottle {} with status ({})", key, st) }
-      result    <- k8s.updateStatus(nextState)
+      _ <- Future {
+            log.info("updating clusterthrottle {} with status ({})", key, st)
+          }
+      result <- k8s.updateStatus(nextState)
     } yield result
 
     fut.onComplete {
@@ -756,13 +760,19 @@ object ThrottleController {
       case ResourceSpecification.Scope.Namespaced =>
         new ResourceDefinition[O] {
           def spec = new ResourceSpecification {
-            override def apiPathPrefix: String             = rd.spec.apiPathPrefix
-            override def group: Option[String]             = rd.spec.group
-            override def defaultVersion: String            = rd.spec.defaultVersion
+            override def apiPathPrefix: String = rd.spec.apiPathPrefix
+
+            override def group: Option[String] = rd.spec.group
+
+            override def defaultVersion: String = rd.spec.defaultVersion
+
             override def prioritisedVersions: List[String] = rd.spec.prioritisedVersions
+
             override def scope: ResourceSpecification.Scope.Value =
               ResourceSpecification.Scope.Cluster
+
             override def names: ResourceSpecification.Names = rd.spec.names
+
             override def subresources: Option[Subresources] = rd.spec.subresources
           }
         }
@@ -773,6 +783,7 @@ object ThrottleController {
       filter: v1alpha1.Throttle => Boolean,
       filterName: String,
       at: skuber.Timestamp = java.time.ZonedDateTime.now())
+
   case class ReconcileOneThrottleEvent(
       key: ObjectKey,
       at: skuber.Timestamp = java.time.ZonedDateTime.now())
@@ -781,6 +792,7 @@ object ThrottleController {
       filter: v1alpha1.ClusterThrottle => Boolean,
       filterName: String,
       at: skuber.Timestamp = java.time.ZonedDateTime.now())
+
   case class ReconcileOneClusterThrottleEvent(
       key: ObjectKey,
       at: skuber.Timestamp = java.time.ZonedDateTime.now())
