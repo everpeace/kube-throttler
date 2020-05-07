@@ -388,6 +388,10 @@ Apache License 2.0
 
 # Change Logs
 
+## `0.7.3`
+- Fixed
+  - Watching Kubernetes events stopped when some watch source faced error (#22)
+
 ## `0.7.2`
 - Changed
   - upgraded [`skuber`](https://github.com/doriordan/skuber) version to `v2.2.0`
