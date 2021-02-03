@@ -67,7 +67,7 @@ class Routes(
       if (isReady) {
         healthchecks.healthy
       } else {
-        healthchecks.unhealthy("throttle-controller is not ready.")
+        healthchecks.unhealthy("throttle-request-handler is not ready.")
       }
     }
   }
