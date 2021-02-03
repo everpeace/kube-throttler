@@ -18,7 +18,7 @@ package com.github.everpeace.k8s.throttler
 import akka.actor.{Actor, Props}
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.testkit.{RouteTestTimeout, ScalatestRouteTest}
-import akka.testkit._
+import akka.testkit.TestDuration
 import akka.util.{ByteString, Timeout}
 import com.github.everpeace.k8s.throttler.controller.ThrottleRequestHandler.{
   CheckThrottleRequest,
@@ -29,8 +29,8 @@ import com.github.everpeace.k8s.throttler.crd.v1alpha1
 import com.github.everpeace.k8s.throttler.crd.v1alpha1.{IsResourceAmountThrottled, ResourceAmount}
 import com.github.everpeace.util.ActorWatcher
 import de.heikoseeberger.akkahttpplayjson.PlayJsonSupport
-import io.k8s.pkg.scheduler.api.v1._
 import io.k8s.pkg.scheduler.api.v1.Implicits._
+import io.k8s.pkg.scheduler.api.v1._
 import org.scalatest.{FreeSpec, Matchers}
 import skuber.Resource.Quantity
 import skuber._
@@ -38,6 +38,8 @@ import skuber._
 import scala.concurrent.duration._
 
 class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with PlayJsonSupport {
+
+  implicit val timeout = RouteTestTimeout(3.seconds.dilated)
 
   def dummyActiveThrottleFor(p: Pod) = {
     v1alpha1
@@ -274,7 +276,6 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
                                   ByteString(requestBody)
                                 ))
 
-      implicit val timeout = RouteTestTimeout(3.seconds.dilated)
       val messageHead =
         """exception occurred in checking throttles for pod (default,timeout): Ask timed out on"""
 
@@ -401,7 +402,6 @@ class RoutesSpec extends FreeSpec with Matchers with ScalatestRouteTest with Pla
                                   MediaTypes.`application/json`,
                                   ByteString(requestBody)
                                 ))
-      implicit val timeout = RouteTestTimeout(3.seconds.dilated)
       request ~> throttlerRoutes ~> check {
         status shouldBe StatusCodes.InternalServerError
         responseAs[String] shouldBe "{}"
