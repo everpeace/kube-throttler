@@ -190,7 +190,6 @@ class ThrottleController(
           lc
         )
         .map(PodWatchEvent(_))
-      // todo: use RestartSource to make the actor more stable.
       done <- {
         val fut = Source
           .combine(nsWatch, clthrottleWatch, throttleWatch, podWatch)(
@@ -656,15 +655,15 @@ class ThrottleController(
     case ResourceWatchDone(done) =>
       done match {
         case scala.util.Success(_) =>
-          log.error("watch api connection is closed.  restarting ThrottleController actor.")
-          throw new RuntimeException("watch api connection was closed.")
+          log.error("watch api connection is closed. committing suicide.")
+          self ! PoisonPill
         case scala.util.Failure(ex) =>
           log.error(
             "watch api connection was closed by an exceptions.  " +
-              "restarting ThrottleController actor. (cause = {})",
+              "committing suicide. (cause = {})",
             ex
           )
-          throw new RuntimeException(s"watch api failed by $ex.")
+          self ! PoisonPill
       }
   }
 
