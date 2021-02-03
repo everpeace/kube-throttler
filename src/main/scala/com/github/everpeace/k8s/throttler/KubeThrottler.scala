@@ -65,7 +65,7 @@ object KubeThrottler extends App {
   val throttler =
     system.actorOf(ThrottleController.props(requestHandleActor, k8s, config), "throttle-controller")
   val throttlerWatcher =
-    system.actorOf(ActorWatcher.props(throttler), name = "throttle-controller-watcher")
+    system.actorOf(ActorWatcher.props(requestHandleActor), name = "throttle-controller-watcher")
   val routes = new Routes(requestHandleActor,
                           throttlerWatcher,
                           config.throttlerAskTimeout,
