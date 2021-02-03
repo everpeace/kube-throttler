@@ -19,7 +19,7 @@ package com.github.everpeace.k8s.throttler.controller
 import akka.Done
 import akka.actor.{Actor, ActorLogging, ActorRef, Cancellable, PoisonPill, Props}
 import akka.stream.ActorMaterializer
-import akka.stream.scaladsl.{Merge, Sink, Source}
+import akka.stream.scaladsl.{Merge, Sink, Source, RestartSource}
 import com.github.everpeace.k8s._
 import com.github.everpeace.k8s.throttler.KubeThrottleConfig
 import com.github.everpeace.k8s.throttler.controller.ThrottleController._
@@ -39,6 +39,7 @@ import skuber.json.format.{namespaceFormat, namespaceListFmt, podFormat, podList
 
 import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 
 class ThrottleController(
@@ -191,9 +192,11 @@ class ThrottleController(
         )
         .map(PodWatchEvent(_))
       done <- {
-        val fut = Source
-          .combine(nsWatch, clthrottleWatch, throttleWatch, podWatch)(
-            Merge(_, eagerComplete = true))
+        val fut = RestartSource
+          .withBackoff(0 second, 60 seconds, 0.1) { () =>
+            Source.combine(nsWatch, clthrottleWatch, throttleWatch, podWatch)(
+              Merge(_, eagerComplete = true))
+          }
           .runWith(
             Sink.foreach {
               case event: PodWatchEvent             => self ! event
@@ -655,15 +658,15 @@ class ThrottleController(
     case ResourceWatchDone(done) =>
       done match {
         case scala.util.Success(_) =>
-          log.error("watch api connection is closed. committing suicide.")
-          self ! PoisonPill
+          log.error("watch api connection is closed.  restarting ThrottleController actor.")
+          throw new RuntimeException("watch api connection was closed.")
         case scala.util.Failure(ex) =>
           log.error(
             "watch api connection was closed by an exceptions.  " +
-              "committing suicide. (cause = {})",
+              "restarting ThrottleController actor. (cause = {})",
             ex
           )
-          self ! PoisonPill
+          throw new RuntimeException(s"watch api failed by $ex.")
       }
   }
 
