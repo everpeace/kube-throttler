@@ -387,7 +387,10 @@ kubectl create -f prometheus/servicemonitor.yaml
 Apache License 2.0
 
 # Change Logs
-
+## `0.7.4`
+- Fixed
+  - fail fast the liveness probe when kubernetes api watch stopped(#23)
+  
 ## `0.7.3`
 - Fixed
   - Watching Kubernetes events stopped when some watch source faced error (#22)
