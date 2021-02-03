@@ -19,7 +19,7 @@ package com.github.everpeace.k8s.throttler.controller
 import akka.Done
 import akka.actor.{Actor, ActorLogging, ActorRef, Cancellable, PoisonPill, Props}
 import akka.stream.ActorMaterializer
-import akka.stream.scaladsl.{Merge, Sink, Source, RestartSource}
+import akka.stream.scaladsl.{Merge, Sink, Source}
 import com.github.everpeace.k8s._
 import com.github.everpeace.k8s.throttler.KubeThrottleConfig
 import com.github.everpeace.k8s.throttler.controller.ThrottleController._
@@ -39,7 +39,6 @@ import skuber.json.format.{namespaceFormat, namespaceListFmt, podFormat, podList
 
 import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
-import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 
 class ThrottleController(
@@ -191,12 +190,11 @@ class ThrottleController(
           lc
         )
         .map(PodWatchEvent(_))
+      // todo: use RestartSource to make the actor more stable.
       done <- {
-        val fut = RestartSource
-          .withBackoff(0 second, 60 seconds, 0.1) { () =>
-            Source.combine(nsWatch, clthrottleWatch, throttleWatch, podWatch)(
-              Merge(_, eagerComplete = true))
-          }
+        val fut = Source
+          .combine(nsWatch, clthrottleWatch, throttleWatch, podWatch)(
+            Merge(_, eagerComplete = true))
           .runWith(
             Sink.foreach {
               case event: PodWatchEvent             => self ! event
