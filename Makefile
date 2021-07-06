@@ -6,8 +6,7 @@ export CGO_ENABLED=0
 NAME         := kube-throttler
 VERSION      ?= $(if $(RELEASE),$(shell git semv now),$(shell git semv patch -p))
 REVISION     := $(shell git rev-parse --short HEAD)
-IMAGE_PREFIX ?= kube-throttler/
-IMAGE_NAME   := $(if $(RELEASE),release,dev)
+IMAGE_PREFIX ?= ""
 IMAGE_TAG    ?= $(if $(RELEASE),$(VERSION),$(VERSION)-$(REVISION))
 LDFLAGS      := -ldflags="-s -w -X \"github.com/everpeace/kube-throttler/cmd.Version=$(VERSION)\" -X \"github.com/everpeace/kube-throttler/cmd.Revision=$(REVISION)\" -extldflags \"-static\""
 OUTDIR       ?= ./dist
@@ -50,18 +49,20 @@ clean:
 .PHONY: build-image
 build-image:
 	docker build -t $(shell make -e docker-tag) --build-arg RELEASE=$(RELEASE) --build-arg VERSION=$(VERSION) --target runtime .
-	docker tag $(shell make -e docker-tag) $(IMAGE_PREFIX)$(IMAGE_NAME):$(VERSION)  # without revision
-	docker tag $(shell make -e docker-tag) $(IMAGE_PREFIX)$(IMAGE_NAME):latest      # latest
+	docker tag $(shell make -e docker-tag) $(IMAGE_PREFIX)$(NAME):$(VERSION)  # without revision
 
 .PHONY: push-image
 push-image:
 	docker push $(shell make -e docker-tag)
-	docker push $(IMAGE_PREFIX)$(IMAGE_NAME):$(VERSION) # without revision
-	docker push $(IMAGE_PREFIX)$(IMAGE_NAME):latest     # latest
+	# without revision
+	docker push $(IMAGE_PREFIX)$(NAME):$(VERSION)
+	# latest (update only in release)
+	$(if $(RELEASE), docker tag $(shell make -e docker-tag) $(IMAGE_PREFIX)$(NAME):latest)
+	$(if $(RELEASE), docker push $(IMAGE_PREFIX)$(NAME):latest)  
 
 .PHONY: docker-tag
 docker-tag:
-	@echo $(IMAGE_PREFIX)$(IMAGE_NAME):$(IMAGE_TAG)
+	@echo $(IMAGE_PREFIX)$(NAME):$(IMAGE_TAG)
 
 #
 # Release

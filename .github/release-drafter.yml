@@ -1,0 +1,19 @@
+name-template: 'v$NEXT_PATCH_VERSION'
+tag-template: 'v$NEXT_PATCH_VERSION'
+categories:
+- title: '💣 Breaking Changes'
+  label: 'release-note/breaking-change'
+- title: '🚀 Features'
+  label: 'release-note/feature'
+- title: '🐛 Bug Fixes'
+  label: 'release-note/bugfix'
+- title: '📜 Documentation'
+  label: 'release-note/document'
+- title: '🧰 Maintenance'
+  label: 'release-note/chore'
+exclude-labels:
+- 'release-note/skip'
+template: |
+  ## What’s Changed from $PREVIOUS_TAG
+  $CHANGES
+  Thanks to $CONTRIBUTORS
