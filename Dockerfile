@@ -14,4 +14,4 @@ RUN apt-get update && apt-get install -y ca-certificates && apt-get clean && rm 
 WORKDIR /
 COPY --from=builder /workspace/dist/kube-throttler /usr/local/bin/kube-throttler
 ENTRYPOINT ["/usr/local/bin/kube-throttler"]
-CMD ["scheduler"]
+CMD ["kube-scheduler"]

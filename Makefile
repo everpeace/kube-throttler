@@ -6,7 +6,7 @@ export CGO_ENABLED=0
 NAME         := kube-throttler
 VERSION      ?= $(if $(RELEASE),$(shell git semv now),$(shell git semv patch -p))
 REVISION     := $(shell git rev-parse --short HEAD)
-IMAGE_PREFIX ?= ""
+IMAGE_PREFIX ?= 
 IMAGE_TAG    ?= $(if $(RELEASE),$(VERSION),$(VERSION)-$(REVISION))
 LDFLAGS      := -ldflags="-s -w -X \"github.com/everpeace/kube-throttler/cmd.Version=$(VERSION)\" -X \"github.com/everpeace/kube-throttler/cmd.Revision=$(REVISION)\" -extldflags \"-static\""
 OUTDIR       ?= ./dist
