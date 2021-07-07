@@ -1,176 +1,474 @@
-apiVersion: apiextensions.k8s.io/v1beta1
+
+---
+apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: throttles.schedule.k8s.everpeace.github.com
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.6.1
+  creationTimestamp: null
+  name: throttles.schedule.k8s.everpeace.github.co
 spec:
-  group: schedule.k8s.everpeace.github.com
-  versions:
-  - name: v1alpha1
-    served: true
-    storage: true
-  scope: Namespaced
+  group: schedule.k8s.everpeace.github.co
   names:
-    plural: throttles
-    singular: throttle
+    categories:
+    - kube-throttler
     kind: Throttle
+    listKind: ThrottleList
+    plural: throttles
     shortNames:
     - thr
     - thrs
-  subresources:
-    status: {}
-  additionalPrinterColumns:
-    - name: throttled
-      JSONPath: .status.throttled
-      format: byte
+    singular: throttle
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - format: byte
+      jsonPath: .status.throttled
+      name: throttled
       type: string
-    - name: calculatedThreshold
-      JSONPath: .status.calculatedThreshold.threshold
-      format: byte
-      type: string
+    - format: byte
+      jsonPath: .status.calculatedThreshold.threshold
+      name: calculatedThreshold
       priority: 1
-    - name: calculatedAt
-      JSONPath: .status.calculatedThreshold.calculatedAt
-      format: date
+      type: string
+    - format: date
+      jsonPath: .status.calculatedThreshold.calculatedAt
+      name: calculatedAt
+      priority: 1
       type: date
-      priority: 1
-  validation:
-    # openAPIV3Schema is the schema for validating custom objects.
-    openAPIV3Schema:
-      properties:
-        spec:
-          type: object
-          required:
-          - selector
-          - threshold
-          properties:
-            selector:
-              type: object
-              required:
-                - selectorTerms
-              properties:
-                selectorTerms:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      podSelector:
-                        type: object
-            threshold:
-              type: object
-              properties:
-                resourceCounts:
-                  type: object
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              selector:
+                items:
                   properties:
-                    pod:
-                      type: integer
-                resourceRequests:
+                    podSelector:
+                      items:
+                        description: A node selector requirement is a selector that
+                          contains values, a key, and an operator that relates the
+                          key and values.
+                        properties:
+                          key:
+                            description: The label key that the selector applies to.
+                            type: string
+                          operator:
+                            description: Represents a key's relationship to a set
+                              of values. Valid operators are In, NotIn, Exists, DoesNotExist.
+                              Gt, and Lt.
+                            type: string
+                          values:
+                            description: An array of string values. If the operator
+                              is In or NotIn, the values array must be non-empty.
+                              If the operator is Exists or DoesNotExist, the values
+                              array must be empty. If the operator is Gt or Lt, the
+                              values array must have a single element, which will
+                              be interpreted as an integer. This array is replaced
+                              during a strategic merge patch.
+                            items:
+                              type: string
+                            type: array
+                        required:
+                        - key
+                        - operator
+                        type: object
+                      type: array
                   type: object
-            temporaryThresholdOverrides:
-              type: array
-              items:
-                type: object
-                required:
-                  - begin
-                  - end
+                type: array
+              temporaryThresholdOverrides:
+                items:
+                  properties:
+                    begin:
+                      format: date-time
+                      type: string
+                    end:
+                      format: date-time
+                      type: string
+                    threshold:
+                      properties:
+                        resourceCounts:
+                          properties:
+                            pod:
+                              type: integer
+                          type: object
+                        resourceRequests:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: ResourceList is a set of (resource name, quantity)
+                            pairs.
+                          type: object
+                      type: object
+                  required:
                   - threshold
+                  type: object
+                type: array
+              threshold:
                 properties:
-                  begin:
-                    description: start time string in RFC3339 for this override entry
-                    type: string
-                    minLength: 1
-                  end:
-                    description: end time string in RFC3339 for this override entry
-                    type: string
-                    minLength: 1
-                  threshold:
+                  resourceCounts:
+                    properties:
+                      pod:
+                        type: integer
                     type: object
+                  resourceRequests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: ResourceList is a set of (resource name, quantity)
+                      pairs.
+                    type: object
+                type: object
+              throttlerName:
+                type: string
+            required:
+            - selector
+            - threshold
+            - throttlerName
+            type: object
+          status:
+            properties:
+              calculatedThreshold:
+                properties:
+                  calculatedAt:
+                    format: date-time
+                    type: string
+                  messages:
+                    items:
+                      type: string
+                    type: array
+                  threshold:
                     properties:
                       resourceCounts:
-                        type: object
                         properties:
                           pod:
                             type: integer
-                      resourceRequests:
                         type: object
----
-apiVersion: apiextensions.k8s.io/v1beta1
-kind: CustomResourceDefinition
-metadata:
-  name: clusterthrottles.schedule.k8s.everpeace.github.com
-spec:
-  group: schedule.k8s.everpeace.github.com
-  versions:
-  - name: v1alpha1
+                      resourceRequests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: ResourceList is a set of (resource name, quantity)
+                          pairs.
+                        type: object
+                    type: object
+                required:
+                - calculatedAt
+                - threshold
+                type: object
+              throttled:
+                properties:
+                  resourceCounts:
+                    properties:
+                      pod:
+                        type: boolean
+                    type: object
+                  resourceRequests:
+                    additionalProperties:
+                      type: boolean
+                    type: object
+                type: object
+              used:
+                properties:
+                  resourceCounts:
+                    properties:
+                      pod:
+                        type: integer
+                    type: object
+                  resourceRequests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: ResourceList is a set of (resource name, quantity)
+                      pairs.
+                    type: object
+                type: object
+            type: object
+        type: object
     served: true
     storage: true
-  scope: Cluster
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.6.1
+  creationTimestamp: null
+  name: clusterthrottles.schedule.k8s.everpeace.github.co
+spec:
+  group: schedule.k8s.everpeace.github.co
   names:
-    plural: clusterthrottles
-    singular: clusterthrottle
+    categories:
+    - kube-throttler
     kind: ClusterThrottle
+    listKind: ClusterThrottleList
+    plural: clusterthrottles
     shortNames:
     - clthr
     - clthrs
-  subresources:
-    status: {}
-  validation:
-    # openAPIV3Schema is the schema for validating custom objects.
-    openAPIV3Schema:
-      properties:
-        spec:
-          type: object
-          required:
-          - selector
-          - threshold
-          properties:
-            selector:
-              type: object
-              required:
-              - selectorTerms
-              properties:
-                selectorTerms:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      namespaceSelector:
-                        type: object
-                      podSelector:
-                        type: object
-            threshold:
-              type: object
-              properties:
-                resourceCounts:
-                  type: object
+    singular: clusterthrottle
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - format: byte
+      jsonPath: .status.throttled
+      name: throttled
+      type: string
+    - format: byte
+      jsonPath: .status.calculatedThreshold.threshold
+      name: calculatedThreshold
+      priority: 1
+      type: string
+    - format: date
+      jsonPath: .status.calculatedThreshold.calculatedAt
+      name: calculatedAt
+      priority: 1
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              selector:
+                items:
                   properties:
-                    pod:
-                      type: integer
-                resourceRequests:
+                    namespaceSelector:
+                      items:
+                        description: A node selector requirement is a selector that
+                          contains values, a key, and an operator that relates the
+                          key and values.
+                        properties:
+                          key:
+                            description: The label key that the selector applies to.
+                            type: string
+                          operator:
+                            description: Represents a key's relationship to a set
+                              of values. Valid operators are In, NotIn, Exists, DoesNotExist.
+                              Gt, and Lt.
+                            type: string
+                          values:
+                            description: An array of string values. If the operator
+                              is In or NotIn, the values array must be non-empty.
+                              If the operator is Exists or DoesNotExist, the values
+                              array must be empty. If the operator is Gt or Lt, the
+                              values array must have a single element, which will
+                              be interpreted as an integer. This array is replaced
+                              during a strategic merge patch.
+                            items:
+                              type: string
+                            type: array
+                        required:
+                        - key
+                        - operator
+                        type: object
+                      type: array
+                    podSelector:
+                      items:
+                        description: A node selector requirement is a selector that
+                          contains values, a key, and an operator that relates the
+                          key and values.
+                        properties:
+                          key:
+                            description: The label key that the selector applies to.
+                            type: string
+                          operator:
+                            description: Represents a key's relationship to a set
+                              of values. Valid operators are In, NotIn, Exists, DoesNotExist.
+                              Gt, and Lt.
+                            type: string
+                          values:
+                            description: An array of string values. If the operator
+                              is In or NotIn, the values array must be non-empty.
+                              If the operator is Exists or DoesNotExist, the values
+                              array must be empty. If the operator is Gt or Lt, the
+                              values array must have a single element, which will
+                              be interpreted as an integer. This array is replaced
+                              during a strategic merge patch.
+                            items:
+                              type: string
+                            type: array
+                        required:
+                        - key
+                        - operator
+                        type: object
+                      type: array
                   type: object
-            temporaryThresholdOverrides:
-              type: array
-              items:
-                type: object
-                required:
-                  - begin
-                  - end
+                type: array
+              temporaryThresholdOverrides:
+                items:
+                  properties:
+                    begin:
+                      format: date-time
+                      type: string
+                    end:
+                      format: date-time
+                      type: string
+                    threshold:
+                      properties:
+                        resourceCounts:
+                          properties:
+                            pod:
+                              type: integer
+                          type: object
+                        resourceRequests:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: ResourceList is a set of (resource name, quantity)
+                            pairs.
+                          type: object
+                      type: object
+                  required:
                   - threshold
+                  type: object
+                type: array
+              threshold:
                 properties:
-                  begin:
-                    description: start time string in RFC3339 for this override entry
-                    type: string
-                    minLength: 1
-                  end:
-                    description: end time string in RFC3339 for this override entry
-                    type: string
-                    minLength: 1
-                  threshold:
+                  resourceCounts:
+                    properties:
+                      pod:
+                        type: integer
                     type: object
+                  resourceRequests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: ResourceList is a set of (resource name, quantity)
+                      pairs.
+                    type: object
+                type: object
+              throttlerName:
+                type: string
+            required:
+            - selector
+            - threshold
+            - throttlerName
+            type: object
+          status:
+            properties:
+              calculatedThreshold:
+                properties:
+                  calculatedAt:
+                    format: date-time
+                    type: string
+                  messages:
+                    items:
+                      type: string
+                    type: array
+                  threshold:
                     properties:
                       resourceCounts:
-                        type: object
                         properties:
                           pod:
                             type: integer
-                      resourceRequests:
                         type: object
+                      resourceRequests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: ResourceList is a set of (resource name, quantity)
+                          pairs.
+                        type: object
+                    type: object
+                required:
+                - calculatedAt
+                - threshold
+                type: object
+              throttled:
+                properties:
+                  resourceCounts:
+                    properties:
+                      pod:
+                        type: boolean
+                    type: object
+                  resourceRequests:
+                    additionalProperties:
+                      type: boolean
+                    type: object
+                type: object
+              used:
+                properties:
+                  resourceCounts:
+                    properties:
+                      pod:
+                        type: integer
+                    type: object
+                  resourceRequests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: ResourceList is a set of (resource name, quantity)
+                      pairs.
+                    type: object
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

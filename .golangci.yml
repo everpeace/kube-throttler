@@ -2,6 +2,7 @@ run:
   tests: false
   skip-dirs:
   - .dev/
+  skip-dirs-use-default: true
 output:
   format: colored-line-number
   print-issued-lines: true

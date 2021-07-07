@@ -4,7 +4,7 @@ export CGO_ENABLED=0
 
 # project metadta
 NAME         := kube-throttler
-VERSION      ?= $(if $(RELEASE),$(shell git semv now),$(shell git semv patch -p))
+VERSION      ?= $(if $(RELEASE),$(shell $(GIT_SEMV) now),$(shell $(GIT_SEMV) patch -p))
 REVISION     := $(shell git rev-parse --short HEAD)
 IMAGE_PREFIX ?= 
 IMAGE_TAG    ?= $(if $(RELEASE),$(VERSION),$(VERSION)-$(REVISION))
@@ -13,26 +13,29 @@ OUTDIR       ?= ./dist
 
 .DEFAULT_GOAL := build
 
-.PHONY: setup
-setup:
-	cd $(shell go env GOPATH) && \
-	go get -u golang.org/x/tools/cmd/goimports && \
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin v1.27.0 && \
-	go get -u github.com/elastic/go-licenser && \
-	go get -u github.com/linyows/git-semv/cmd/git-semv
-
 .PHONY: fmt
 fmt:
-	$(shell go env GOPATH)/bin/goimports -w cmd/
-	$(shell go env GOPATH)/bin/go-licenser --licensor "Shingo Omura"
+	$(GO_IMPORTS) -w cmd/ pkg/
+	$(GO_LICENSER) --licensor "Shingo Omura"
 
 .PHONY: lint
 lint: fmt
-	$(shell go env GOPATH)/bin/golangci-lint run --config .golangci.yml --deadline 30m
+	$(GOLANGCI_LINT) run --config .golangci.yml --deadline 30m
 
 .PHONY: build
 build: fmt lint
 	go build -tags netgo -installsuffix netgo $(LDFLAGS) -o $(OUTDIR)/$(NAME) .
+
+.PHONY: generate
+generate: codegen crd
+
+.PHONY: codegen
+codegen:
+	./hack/update-codegen.sh
+
+.PHONY: crd
+crd:
+	$(CONTROLLER_GEN) crd paths=./pkg/apis/... output:stdout > ./deploy/0-crd.yaml
 
 .PHONY: build-only
 build-only: 
@@ -77,3 +80,35 @@ release: guard-RELEASE guard-RELEASE_TAG
 	git diff --quiet HEAD || (echo "your current branch is dirty" && exit 1)
 	git tag $(RELEASE_TAG) $(REVISION)
 	git push origin $(RELEASE_TAG)
+
+
+#
+# dev setup
+#
+.PHONY: setup
+DEV_TOOL_PREFIX = $(shell pwd)/.dev
+GIT_SEMV = $(DEV_TOOL_PREFIX)/bin/git-semv
+GOLANGCI_LINT = $(DEV_TOOL_PREFIX)/bin/golangci-lint
+GO_LICENSER = $(DEV_TOOL_PREFIX)/bin/go-licenser 
+GO_IMPORTS = $(DEV_TOOL_PREFIX)/bin/goimports
+CONTROLLER_GEN = $(DEV_TOOL_PREFIX)/bin/controller-gen
+setup:
+	$(call go-get-tool,$(GO_IMPORTS),golang.org/x/tools/cmd/goimports)
+	$(call go-get-tool,$(GO_LICENSER),github.com/elastic/go-licenser)
+	$(call go-get-tool,$(GIT_SEMV),github.com/linyows/git-semv/cmd/git-semv)
+	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.6.1)
+	cd $(shell go env GOPATH) && \
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(DEV_TOOL_PREFIX)/bin v1.27.0
+
+# go-get-tool will 'go get' any package $2 and install it to $1.
+define go-get-tool
+@[ -f $(1) ] || { \
+set -e ;\
+TMP_DIR=$$(mktemp -d) ;\
+cd $$TMP_DIR ;\
+go mod init tmp ;\
+echo "Downloading $(2)" ;\
+GOBIN=$(DEV_TOOL_PREFIX)/bin go get $(2) ;\
+rm -rf $$TMP_DIR ;\
+}
+endef
