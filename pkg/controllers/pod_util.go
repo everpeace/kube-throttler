@@ -15,22 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package v1alpha1
+package controllers
 
-import (
-	"time"
+import corev1 "k8s.io/api/core/v1"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-)
-
-type TemporaryThresholdOverride struct {
-	Begin metav1.Time `json:"begin"`
-	End   metav1.Time `json:"end"`
-	// +kubebuilder:validation:Required
-	Threshold ResourceAmount `json:"threshold"`
+func isScheduled(pod *corev1.Pod) bool {
+	return pod.Spec.NodeName != ""
 }
 
-func (o TemporaryThresholdOverride) IsActive(now time.Time) bool {
-	return (o.Begin.Time.Before(now) || o.Begin.Time.Equal(now)) &&
-		(!o.End.IsZero() && (now.Before(o.End.Time) || now.Equal(o.End.Time)))
+func isNotFinished(pod *corev1.Pod) bool {
+	return pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed
 }

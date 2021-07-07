@@ -22,15 +22,23 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type ClusterThrottleSelectorTerm struct {
-	ThrottleSelectorTerm `json:",inline"`
-	NamespaceSelector    []corev1.NodeSelectorRequirement `json:"namespaceSelector"`
-}
-
 type ClusterThrottleSpec struct {
 	ThrottleSpecBase `json:",inline"`
 	// +kubebuilder:validation:Required
 	Selector []ClusterThrottleSelectorTerm `json:"selector,omitempty"`
+}
+
+func (s ClusterThrottleSpec) MatchesToPod(pod *corev1.Pod, ns *corev1.Namespace) (bool, error) {
+	for _, sel := range s.Selector {
+		match, err := sel.MatchesToPod(pod, ns)
+		if err != nil {
+			return false, err
+		}
+		if match {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // +genclient

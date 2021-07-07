@@ -19,9 +19,18 @@ package scheduler_plugin
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"time"
 
+	schedulev1alpha1 "github.com/everpeace/kube-throttler/pkg/apis/schedule/v1alpha1"
+	"github.com/everpeace/kube-throttler/pkg/controllers"
+	scheduleclient "github.com/everpeace/kube-throttler/pkg/generated/clientset/versioned"
+	scheduleinformers "github.com/everpeace/kube-throttler/pkg/generated/informers/externalversions"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
@@ -31,10 +40,12 @@ const (
 )
 
 type KubeThrottler struct {
-	fh framework.Handle
+	fh          framework.Handle
+	throttleCtr *controllers.ThrottleController
 }
 
-var _ framework.FilterPlugin = &KubeThrottler{}
+var _ framework.PreFilterPlugin = &KubeThrottler{}
+var _ framework.ReservePlugin = &KubeThrottler{}
 
 func (p *KubeThrottler) Name() string {
 	return Name
@@ -42,17 +53,92 @@ func (p *KubeThrottler) Name() string {
 
 // New initializes a new plugin and returns it.
 func New(_ runtime.Object, fh framework.Handle) (framework.Plugin, error) {
-	pl := KubeThrottler{
-		fh: fh,
+	scheduleClientset := scheduleclient.NewForConfigOrDie(nil)
+	scheduleInformerFactory := scheduleinformers.NewSharedInformerFactory(scheduleClientset, 5*time.Minute)
+	throttleInformer := scheduleInformerFactory.Schedule().V1alpha1().Throttles()
+	podInformer := fh.SharedInformerFactory().Core().V1().Pods()
+
+	throttleController := controllers.NewThrottleController(
+		"", // TODO
+		throttleInformer,
+		podInformer,
+		clock.RealClock{},
+	)
+
+	if err := throttleController.Start(4, context.Background().Done()); err != nil {
+		return nil, err
 	}
+
+	pl := KubeThrottler{
+		fh:          fh,
+		throttleCtr: throttleController,
+	}
+
 	return &pl, nil
 }
 
-func (p *KubeThrottler) Filter(
+func (pl *KubeThrottler) PreFilter(
 	ctx context.Context,
 	state *framework.CycleState,
 	pod *v1.Pod,
-	nodeInfo *framework.NodeInfo,
 ) *framework.Status {
+	thrActive, thrInsufficient, err := pl.throttleCtr.CheckThrottled(pod)
+	if err != nil {
+		return framework.NewStatus(framework.Error, err.Error())
+	}
+
+	if len(thrActive) == 0 && len(thrInsufficient) == 0 {
+		return framework.NewStatus(framework.Success)
+	}
+
+	reasons := []string{}
+	if len(thrActive) != 0 {
+		reasons = append(reasons, fmt.Sprintf("throttle[%s]=%s", schedulev1alpha1.CheckThrottleStatusActive, strings.Join(throttleNames(thrActive), ",")))
+	}
+	if len(thrInsufficient) != 0 {
+		reasons = append(reasons, fmt.Sprintf("throttle[%s]=%s", schedulev1alpha1.CheckThrottleStatusInsufficient, strings.Join(throttleNames(thrInsufficient), ",")))
+	}
+
+	return framework.NewStatus(framework.UnschedulableAndUnresolvable, reasons...)
+}
+
+func (pl *KubeThrottler) Reserve(
+	ctx context.Context,
+	state *framework.CycleState,
+	pod *v1.Pod,
+	node string,
+) *framework.Status {
+	errs := []string{}
+	err := pl.throttleCtr.Reserve(pod)
+	if err != nil {
+		errs = append(errs, err.Error())
+	}
+
+	if len(errs) != 0 {
+		return framework.NewStatus(framework.Error, errs...)
+	}
+	return framework.NewStatus(framework.Success)
+}
+
+func (pl *KubeThrottler) Unreserve(
+	ctx context.Context,
+	state *framework.CycleState,
+	pod *v1.Pod,
+	node string,
+) {
+	// TODO: log error
+	// How to handle error if it happened??
+	_ = pl.throttleCtr.UnReserve(pod)
+}
+
+func (p *KubeThrottler) PreFilterExtensions() framework.PreFilterExtensions {
 	return nil
+}
+
+func throttleNames(thrs []schedulev1alpha1.Throttle) []string {
+	names := make([]string, len(thrs))
+	for i, thr := range thrs {
+		names[i] = types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}.String()
+	}
+	return names
 }

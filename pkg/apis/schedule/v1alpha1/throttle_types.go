@@ -18,13 +18,11 @@
 package v1alpha1
 
 import (
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-type ThrottleSelectorTerm struct {
-	PodSelector []corev1.NodeSelectorRequirement `json:"podSelector"`
-}
 
 type ThrottleSpecBase struct {
 	// +kubebuilder:validation:Required
@@ -35,16 +33,71 @@ type ThrottleSpecBase struct {
 	TemporaryThresholdOverrides []TemporaryThresholdOverride `json:"temporaryThresholdOverrides,omitempty"`
 }
 
+func (b ThrottleSpecBase) CurrentThreshold(now time.Time) CalculatedThreshold {
+	calculated := CalculatedThreshold{
+		CalculatedAt: metav1.Time{Time: now},
+	}
+
+	for _, o := range b.TemporaryThresholdOverrides {
+		if o.IsActive(now) {
+			calculated.Threshold = o.Threshold
+			return calculated
+		}
+	}
+
+	calculated.Threshold = b.Threshold
+	return calculated
+}
+
 type ThrottleSpec struct {
 	ThrottleSpecBase `json:",inline"`
 	// +kubebuilder:validation:Required
 	Selector []ThrottleSelectorTerm `json:"selector,omitempty"`
 }
 
+func (s ThrottleSpec) MatchesToPod(pod *corev1.Pod) (bool, error) {
+	for _, sel := range s.Selector {
+		match, err := sel.MatchesToPod(pod)
+		if err != nil {
+			return false, err
+		}
+		if match {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 type ThrottleStatus struct {
 	CalculatedThreshold CalculatedThreshold       `json:"calculatedThreshold,omitempty"`
 	Throttled           IsResourceAmountThrottled `json:"throttled,omitempty"`
 	Used                ResourceAmount            `json:"used,omitempty"`
+}
+
+type CheckThrottleStatus string
+
+var (
+	CheckThrottleStatusNotThrottled CheckThrottleStatus = "not-throttled"
+	CheckThrottleStatusActive       CheckThrottleStatus = "active"
+	CheckThrottleStatusInsufficient CheckThrottleStatus = "insufficient"
+)
+
+func (thr Throttle) CheckThrottledFor(pod *corev1.Pod, reservedResourceAmount ResourceAmount) CheckThrottleStatus {
+	if thr.Status.Throttled.IsThrottledFor(pod) {
+		return CheckThrottleStatusActive
+	}
+
+	used := ResourceAmount{}.Add(thr.Status.Used).Add(ResourceAmountOfPod(pod)).Add(reservedResourceAmount)
+	threshold := thr.Spec.Threshold
+	if !thr.Status.CalculatedThreshold.CalculatedAt.Time.IsZero() {
+		threshold = thr.Status.CalculatedThreshold.Threshold
+	}
+
+	if threshold.IsThrottled(used).IsThrottledFor(pod) {
+		return CheckThrottleStatusInsufficient
+	}
+
+	return CheckThrottleStatusNotThrottled
 }
 
 // +genclient
