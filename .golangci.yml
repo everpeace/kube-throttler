@@ -1,0 +1,20 @@
+run:
+  tests: false
+  skip-dirs:
+  - .dev/
+  skip-dirs-use-default: true
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+linters:
+  enable:
+    - govet
+    - gofmt
+    - goimports
+    - unconvert
+    - misspell
+    - interfacer
+    - maligned
+    - prealloc
+  fast: false
