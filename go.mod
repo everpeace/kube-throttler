@@ -3,13 +3,20 @@ module github.com/everpeace/kube-throttler
 go 1.16
 
 require (
+	github.com/onsi/ginkgo v1.11.0
+	github.com/onsi/gomega v1.7.0
+	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v1.2.1
 	k8s.io/api v0.20.5
 	k8s.io/apimachinery v0.20.5
+	k8s.io/apiserver v0.20.5
 	k8s.io/client-go v0.20.5
 	k8s.io/component-base v0.20.5
+	k8s.io/component-helpers v1.20.5
+	k8s.io/klog/v2 v2.4.0
 	k8s.io/kube-scheduler v0.20.5 // indirect
 	k8s.io/kubernetes v1.20.5
+	k8s.io/utils v0.0.0-20210629042839-4a2b36d8d73f
 )
 
 replace (
