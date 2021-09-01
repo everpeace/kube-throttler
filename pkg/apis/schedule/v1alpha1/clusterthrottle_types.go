@@ -22,15 +22,27 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type ClusterThrottleSelectorTerm struct {
-	ThrottleSelectorTerm `json:",inline"`
-	NamespaceSelector    []corev1.NodeSelectorRequirement `json:"namespaceSelector"`
-}
-
 type ClusterThrottleSpec struct {
 	ThrottleSpecBase `json:",inline"`
-	// +kubebuilder:validation:Required
-	Selector []ClusterThrottleSelectorTerm `json:"selector,omitempty"`
+	Selector         ClusterThrottleSelector `json:"selector,omitempty"`
+}
+
+func (thr ClusterThrottle) CheckThrottledFor(pod *corev1.Pod, reservedResourceAmount ResourceAmount, isThrottledOnEqual bool) CheckThrottleStatus {
+	if thr.Status.Throttled.IsThrottledFor(pod) {
+		return CheckThrottleStatusActive
+	}
+
+	used := ResourceAmount{}.Add(thr.Status.Used).Add(ResourceAmountOfPod(pod)).Add(reservedResourceAmount)
+	threshold := thr.Spec.Threshold
+	if !thr.Status.CalculatedThreshold.CalculatedAt.Time.IsZero() {
+		threshold = thr.Status.CalculatedThreshold.Threshold
+	}
+
+	if threshold.IsThrottled(used, isThrottledOnEqual).IsThrottledFor(pod) {
+		return CheckThrottleStatusInsufficient
+	}
+
+	return CheckThrottleStatusNotThrottled
 }
 
 // +genclient

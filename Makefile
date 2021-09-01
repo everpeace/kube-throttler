@@ -26,16 +26,21 @@ lint: fmt
 build: fmt lint
 	go build -tags netgo -installsuffix netgo $(LDFLAGS) -o $(OUTDIR)/$(NAME) .
 
+.PHONY: install
+install:
+	kubectl apply -f ./deploy/crd.yaml
+
 .PHONY: generate
 generate: codegen crd
 
 .PHONY: codegen
 codegen:
 	./hack/update-codegen.sh
+	$(GO_LICENSER) --licensor "Shingo Omura"
 
 .PHONY: crd
 crd:
-	$(CONTROLLER_GEN) crd paths=./pkg/apis/... output:stdout > ./deploy/0-crd.yaml
+	$(CONTROLLER_GEN) crd paths=./pkg/apis/... output:stdout > ./deploy/crd.yaml
 
 .PHONY: build-only
 build-only: 
@@ -112,3 +117,27 @@ GOBIN=$(DEV_TOOL_PREFIX)/bin go get $(2) ;\
 rm -rf $$TMP_DIR ;\
 }
 endef
+
+#
+# local development
+# TIPS: You can change loglevel dynamicaly:
+#   $ curl curl -XPUT --data 'N' localhost:10251/debug/flags/v
+#
+KUBECONFIG ?= $(HOME)/.kube/config
+.PHONY: dev-scheduler-conf
+dev-scheduler-conf:
+	mkdir -p .dev
+	KUBECONFIG=$(KUBECONFIG) envsubst < ./hack/dev/scheduler-config.yaml.template > ./hack/dev/scheduler-config.yaml
+
+.PHONY: dev-run
+dev-run: dev-scheduler-conf
+	go run main.go kube-scheduler \
+		--config=./hack/dev/scheduler-config.yaml \
+		-v=3
+
+.PHONY: dev-run-debug
+dev-run-debug: dev-scheduler-conf
+	dlv debug --headless --listen=0.0.0.0:2345 --api-version=2 --log main.go -- kube-scheduler \
+		--config=./hack/dev/scheduler-config.yaml \
+		--kubeconfig=$(HOME)/.kube/config \
+		--v=3

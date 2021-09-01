@@ -18,35 +18,37 @@
 package v1alpha1
 
 import (
-	"time"
-
-	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 )
 
-type TemporaryThresholdOverride struct {
-	Begin string `json:"begin"`
-	End   string `json:"end"`
-	// +kubebuilder:validation:Required
-	Threshold ResourceAmount `json:"threshold"`
+type ThrottleSelector struct {
+	SelecterTerms []ThrottleSelectorTerm `json:"selectorTerms,omitempty"`
 }
 
-func (o TemporaryThresholdOverride) IsActive(now time.Time) (bool, error) {
-	var err error
-	var beginTime, endTime time.Time
-	if o.Begin != "" {
-		beginTime, err = time.Parse(time.RFC3339, o.Begin)
+func (s ThrottleSelector) MatchesToPod(pod *corev1.Pod) (bool, error) {
+	// OR-ed
+	for _, sel := range s.SelecterTerms {
+		match, err := sel.MatchesToPod(pod)
 		if err != nil {
-			return false, errors.Wrap(err, "Failed to parse Begin")
+			return false, err
+		}
+		if match {
+			return true, nil
 		}
 	}
-	if o.End != "" {
-		endTime, err = time.Parse(time.RFC3339, o.End)
-		if err != nil {
-			return false, errors.Wrap(err, "Failed to parse End")
-		}
-	}
+	return false, nil
+}
 
-	begin := (beginTime.Before(now) || beginTime.Equal(now))
-	end := (endTime.IsZero() || (now.Before(endTime) || now.Equal(endTime)))
-	return begin && end, nil
+type ThrottleSelectorTerm struct {
+	PodSelector metav1.LabelSelector `json:"podSelector"`
+}
+
+func (t ThrottleSelectorTerm) MatchesToPod(pod *corev1.Pod) (bool, error) {
+	selector, err := metav1.LabelSelectorAsSelector(&t.PodSelector)
+	if err != nil {
+		return false, err
+	}
+	return selector.Matches(labels.Set(pod.Labels)), nil
 }

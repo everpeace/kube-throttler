@@ -37,9 +37,9 @@ type FakeThrottles struct {
 	ns   string
 }
 
-var throttlesResource = schema.GroupVersionResource{Group: "schedule.k8s.everpeace.github.co", Version: "v1alpha1", Resource: "throttles"}
+var throttlesResource = schema.GroupVersionResource{Group: "schedule.k8s.everpeace.github.com", Version: "v1alpha1", Resource: "throttles"}
 
-var throttlesKind = schema.GroupVersionKind{Group: "schedule.k8s.everpeace.github.co", Version: "v1alpha1", Kind: "Throttle"}
+var throttlesKind = schema.GroupVersionKind{Group: "schedule.k8s.everpeace.github.com", Version: "v1alpha1", Kind: "Throttle"}
 
 // Get takes name of the throttle, and returns the corresponding throttle object, and an error if there is any.
 func (c *FakeThrottles) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.Throttle, err error) {

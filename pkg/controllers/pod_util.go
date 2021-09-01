@@ -15,8 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// +k8s:deepcopy-gen=package
-// +groupName=schedule.k8s.everpeace.github.com
-// +kubebuilder:validation:Optional
+package controllers
 
-package v1alpha1
+import corev1 "k8s.io/api/core/v1"
+
+func isScheduled(pod *corev1.Pod) bool {
+	return pod.Spec.NodeName != ""
+}
+
+func isNotFinished(pod *corev1.Pod) bool {
+	return pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed
+}
