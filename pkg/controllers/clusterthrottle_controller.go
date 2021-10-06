@@ -329,16 +329,26 @@ func (c *ClusterThrottleController) setupEventHandler() {
 	c.clusterthrottleInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			thr := obj.(*v1alpha1.ClusterThrottle)
+			if !c.isResponsibleFor(thr) {
+				return
+			}
+
 			klog.V(4).InfoS("Add event", "ClusterThrottle", thr.Name)
 			c.enqueueClusterThrottle(thr)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			thr := newObj.(*v1alpha1.ClusterThrottle)
+			if !c.isResponsibleFor(thr) {
+				return
+			}
 			klog.V(4).InfoS("Update event", "ClusterThrottle", thr.Name)
 			c.enqueueClusterThrottle(thr)
 		},
 		DeleteFunc: func(obj interface{}) {
 			thr := obj.(*v1alpha1.ClusterThrottle)
+			if !c.isResponsibleFor(thr) {
+				return
+			}
 			klog.V(4).InfoS("Add event", "ClusterThrottle", thr.Name)
 			c.enqueueClusterThrottle(thr)
 		},
@@ -347,6 +357,9 @@ func (c *ClusterThrottleController) setupEventHandler() {
 	c.podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			pod := obj.(*corev1.Pod)
+			if !c.shouldCountIn(pod) {
+				return
+			}
 			klog.V(4).InfoS("Add event", "Pod", pod.Namespace+"/"+pod.Name)
 
 			throttles, err := c.affectedClusterThrottles(pod)
@@ -363,6 +376,9 @@ func (c *ClusterThrottleController) setupEventHandler() {
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldPod := oldObj.(*corev1.Pod)
 			newPod := newObj.(*corev1.Pod)
+			if !c.shouldCountIn(oldPod) && !c.shouldCountIn(newPod) {
+				return
+			}
 			klog.V(4).InfoS("Update event", "Pod", newPod.Namespace+"/"+newPod.Name)
 
 			throttleNames := sets.NewString()
@@ -395,6 +411,9 @@ func (c *ClusterThrottleController) setupEventHandler() {
 		},
 		DeleteFunc: func(obj interface{}) {
 			pod := obj.(*corev1.Pod)
+			if !c.shouldCountIn(pod) {
+				return
+			}
 			klog.V(4).InfoS("Delete event", "Pod", pod.Namespace+"/"+pod.Name)
 			// observe the deleted pod is now scheduled. controller should unreserve it.
 			if isScheduled(pod) {

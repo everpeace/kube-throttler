@@ -308,16 +308,25 @@ func (c *ThrottleController) setupEventHandler() {
 	c.throttleInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			thr := obj.(*v1alpha1.Throttle)
+			if !c.isResponsibleFor(thr) {
+				return
+			}
 			klog.V(4).InfoS("Add event", "Throttle", thr.Namespace+"/"+thr.Name)
 			c.enqueueThrottle(thr)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			thr := newObj.(*v1alpha1.Throttle)
+			if !c.isResponsibleFor(thr) {
+				return
+			}
 			klog.V(4).InfoS("Update event", "Throttle", thr.Namespace+"/"+thr.Name)
 			c.enqueueThrottle(thr)
 		},
 		DeleteFunc: func(obj interface{}) {
 			thr := obj.(*v1alpha1.Throttle)
+			if !c.isResponsibleFor(thr) {
+				return
+			}
 			klog.V(4).InfoS("Add event", "Throttle", thr.Namespace+"/"+thr.Name)
 			c.enqueueThrottle(thr)
 		},
@@ -326,7 +335,9 @@ func (c *ThrottleController) setupEventHandler() {
 	c.podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			pod := obj.(*corev1.Pod)
-
+			if !c.shouldCountIn(pod) {
+				return
+			}
 			klog.V(4).InfoS("Add event", "Pod", pod.Namespace+"/"+pod.Name)
 
 			throttles, err := c.affectedThrottles(pod)
@@ -343,6 +354,9 @@ func (c *ThrottleController) setupEventHandler() {
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldPod := oldObj.(*corev1.Pod)
 			newPod := newObj.(*corev1.Pod)
+			if !c.shouldCountIn(oldPod) && !c.shouldCountIn(newPod) {
+				return
+			}
 			klog.V(4).InfoS("Update event", "Pod", newPod.Namespace+"/"+newPod.Name)
 
 			throttleNames := sets.NewString()
@@ -375,6 +389,9 @@ func (c *ThrottleController) setupEventHandler() {
 		},
 		DeleteFunc: func(obj interface{}) {
 			pod := obj.(*corev1.Pod)
+			if !c.shouldCountIn(pod) {
+				return
+			}
 			klog.V(4).InfoS("Delete event", "Pod", pod.Namespace+"/"+pod.Name)
 			// observe the deleted pod is now scheduled. controller should unreserve it.
 			if isScheduled(pod) {
