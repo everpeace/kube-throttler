@@ -60,8 +60,8 @@ func (p *KubeThrottler) Name() string {
 	return PluginName
 }
 
-// New initializes a new plugin and returns it.
-func New(configuration runtime.Object, fh framework.Handle) (framework.Plugin, error) {
+// NewPlugin initializes a new plugin and returns it.
+func NewPlugin(configuration runtime.Object, fh framework.Handle) (framework.Plugin, error) {
 	ctx := context.TODO()
 
 	kubeThrottlerArgs, err := DecodePluginArgs(configuration)
