@@ -7,7 +7,7 @@ clientConnection:
 podMaxBackoffSeconds: 1
 percentageOfNodesToScore: 100
 profiles:
-- schedulerName: my-scheduler
+- schedulerName: ${SCHEDULER_NAME}
   plugins:
     preFilter:
       enabled:
@@ -20,6 +20,6 @@ profiles:
   pluginConfig:
   - name: kube-throttler
     args: 
-      name: kube-throttler
+      name: ${THROTTLER_NAME}
       kubeconfig: ${KUBECONFIG}
-      targetSchedulerName: my-scheduler
+      targetSchedulerName: ${SCHEDULER_NAME}

@@ -124,20 +124,25 @@ endef
 #   $ curl curl -XPUT --data 'N' localhost:10251/debug/flags/v
 #
 KUBECONFIG ?= $(HOME)/.kube/config
+THROTTLER_NAME ?= kube-throttler
+SCHEDULER_NAME ?= my-scheduler
 .PHONY: dev-scheduler-conf
 dev-scheduler-conf:
 	mkdir -p .dev
-	KUBECONFIG=$(KUBECONFIG) envsubst < ./hack/dev/scheduler-config.yaml.template > ./hack/dev/scheduler-config.yaml
+	KUBECONFIG=$(KUBECONFIG) \
+	THROTTLER_NAME=$(THROTTLER_NAME) \
+	SCHEDULER_NAME=$(SCHEDULER_NAME) \
+	envsubst < ./hack/dev/scheduler-config.yaml.template > ./hack/dev/scheduler-config.yaml
 
 .PHONY: dev-run
 dev-run: dev-scheduler-conf
 	go run main.go kube-scheduler \
 		--config=./hack/dev/scheduler-config.yaml \
-		-v=3
+		-v=4
 
 .PHONY: dev-run-debug
 dev-run-debug: dev-scheduler-conf
 	dlv debug --headless --listen=0.0.0.0:2345 --api-version=2 --log main.go -- kube-scheduler \
 		--config=./hack/dev/scheduler-config.yaml \
 		--kubeconfig=$(HOME)/.kube/config \
-		--v=3
+		--v=4
