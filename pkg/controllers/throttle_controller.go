@@ -104,9 +104,11 @@ func (c *ThrottleController) reconcile(key string) error {
 	}
 
 	affectedPods, err := c.affectedPods(thr)
-	klog.V(2).Infof("Throttle %s/%s affects to %d pods", thr.Namespace, thr.Name, len(affectedPods))
 	if err != nil {
 		return err
+	}
+	if len(affectedPods) > 0 {
+		klog.V(2).InfoS("Affected pods detected", "Throttle", thr.Namespace+"/"+thr.Name, "#AffectedPods", len(affectedPods))
 	}
 
 	used := schedulev1alpha1.ResourceAmount{}
@@ -149,7 +151,7 @@ func (c *ThrottleController) reconcile(key string) error {
 
 	if len(thr.Spec.TemporaryThresholdOverrides) > 0 {
 		go func(_thr *v1alpha1.Throttle) {
-			klog.V(3).Infof("Reconciling after duration", "Throttle", thr.Namespace+"/"+thr.Name, "After", c.reconcileTemporaryThresholdInterval)
+			klog.V(3).InfoS("Reconciling after duration", "Throttle", thr.Namespace+"/"+thr.Name, "After", c.reconcileTemporaryThresholdInterval)
 			<-c.clock.After(c.reconcileTemporaryThresholdInterval)
 			c.enqueueThrottle(_thr)
 		}(thr)
