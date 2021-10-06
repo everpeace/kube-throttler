@@ -34,6 +34,34 @@ type ThrottleSpecBase struct {
 	TemporaryThresholdOverrides []TemporaryThresholdOverride `json:"temporaryThresholdOverrides,omitempty"`
 }
 
+func (b ThrottleSpecBase) NextOverrideHappensIn(now time.Time) (*time.Duration, error) {
+	var nextHappenAfter *time.Duration
+	updateIfNeeded := func(d time.Duration) {
+		if nextHappenAfter == nil || *nextHappenAfter > d {
+			nextHappenAfter = &d
+		}
+	}
+	for _, o := range b.TemporaryThresholdOverrides {
+		beginTime, err := o.BeginTime()
+		if err != nil {
+			continue
+		}
+		if beginTime.After(now) {
+			updateIfNeeded(beginTime.Sub(now))
+		}
+
+		endTime, err := o.EndTime()
+		if err != nil {
+			continue
+		}
+		if endTime.After(now) {
+			updateIfNeeded(endTime.Sub(now))
+		}
+	}
+
+	return nextHappenAfter, nil
+}
+
 func (b ThrottleSpecBase) CalculateThreshold(now time.Time) CalculatedThreshold {
 	calculated := CalculatedThreshold{
 		CalculatedAt: metav1.Time{Time: now},

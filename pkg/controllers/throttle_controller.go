@@ -89,6 +89,8 @@ func NewThrottleController(
 func (c *ThrottleController) reconcile(key string) error {
 	klog.V(2).InfoS("Reconciling Throttle", "Throttle", key)
 	ctx := context.Background()
+	now := c.clock.Now()
+
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
@@ -118,7 +120,7 @@ func (c *ThrottleController) reconcile(key string) error {
 
 	newStatus := thr.Status.DeepCopy()
 	newStatus.Used = used
-	calculatedThreshold := thr.Spec.CalculateThreshold(c.clock.Now())
+	calculatedThreshold := thr.Spec.CalculateThreshold(now)
 	if !apiequality.Semantic.DeepEqual(thr.Status.CalculatedThreshold.Threshold, calculatedThreshold.Threshold) ||
 		!apiequality.Semantic.DeepEqual(thr.Status.CalculatedThreshold.Messages, calculatedThreshold.Messages) {
 		klog.V(2).InfoS("New calculatedThreshold will take effect",
@@ -149,12 +151,13 @@ func (c *ThrottleController) reconcile(key string) error {
 		c.UnReserveOnThrottle(p, thr)
 	}
 
-	if len(thr.Spec.TemporaryThresholdOverrides) > 0 {
-		go func(_thr *v1alpha1.Throttle) {
-			klog.V(3).InfoS("Reconciling after duration", "Throttle", thr.Namespace+"/"+thr.Name, "After", c.reconcileTemporaryThresholdInterval)
-			<-c.clock.After(c.reconcileTemporaryThresholdInterval)
-			c.enqueueThrottle(_thr)
-		}(thr)
+	nextOverrideHappensIn, err := thr.Spec.NextOverrideHappensIn(now)
+	if err != nil {
+		return err
+	}
+	if nextOverrideHappensIn != nil {
+		klog.V(3).InfoS("Reconciling after duration", "Throttle", thr.Namespace+"/"+thr.Name, "After", nextOverrideHappensIn)
+		c.enqueueThrottleAfter(thr, *nextOverrideHappensIn)
 	}
 
 	return nil
@@ -436,6 +439,16 @@ func (c *ThrottleController) Start(threadiness int, stopCh <-chan struct{}) erro
 	return nil
 }
 
+func (c *ThrottleController) enqueueThrottleAfter(obj interface{}, duration time.Duration) {
+	var key string
+	var err error
+	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
+		utilruntime.HandleError(err)
+		return
+	}
+	c.workqueue.AddAfter(key, duration)
+}
+
 func (c *ThrottleController) enqueueThrottle(obj interface{}) {
 	var key string
 	var err error
@@ -445,7 +458,6 @@ func (c *ThrottleController) enqueueThrottle(obj interface{}) {
 	}
 	c.workqueue.Add(key)
 }
-
 func (c *ThrottleController) runWorker() {
 	for c.processNextWorkItem() {
 	}

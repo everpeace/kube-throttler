@@ -92,6 +92,8 @@ func NewClusterThrottleController(
 func (c *ClusterThrottleController) reconcile(key string) error {
 	klog.V(2).InfoS("Reconciling ClusterThrottle", "ClusterThrottle", key)
 	ctx := context.Background()
+	now := c.clock.Now()
+
 	_, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
@@ -121,7 +123,7 @@ func (c *ClusterThrottleController) reconcile(key string) error {
 
 	newStatus := thr.Status.DeepCopy()
 	newStatus.Used = used
-	calculatedThreshold := thr.Spec.CalculateThreshold(c.clock.Now())
+	calculatedThreshold := thr.Spec.CalculateThreshold(now)
 	if !apiequality.Semantic.DeepEqual(thr.Status.CalculatedThreshold.Threshold, calculatedThreshold.Threshold) ||
 		!apiequality.Semantic.DeepEqual(thr.Status.CalculatedThreshold.Messages, calculatedThreshold.Messages) {
 		klog.V(2).InfoS("New calculatedThreshold will take effect",
@@ -152,12 +154,13 @@ func (c *ClusterThrottleController) reconcile(key string) error {
 		c.UnReserveOnClusterThrottle(p, thr)
 	}
 
-	if len(thr.Spec.TemporaryThresholdOverrides) > 0 {
-		go func(_thr *v1alpha1.ClusterThrottle) {
-			klog.V(3).InfoS("Reconciling after duration", "ClusterThrottle", thr.Namespace+"/"+thr.Name, "After", c.reconcileTemporaryThresholdInterval)
-			<-c.clock.After(c.reconcileTemporaryThresholdInterval)
-			c.enqueueClusterThrottle(_thr)
-		}(thr)
+	nextOverrideHappensIn, err := thr.Spec.NextOverrideHappensIn(now)
+	if err != nil {
+		return err
+	}
+	if nextOverrideHappensIn != nil {
+		klog.V(3).InfoS("Reconciling after duration", "ClusterThrottle", thr.Namespace+"/"+thr.Name, "After", nextOverrideHappensIn)
+		c.enqueueClusterThrottleAfter(thr, *nextOverrideHappensIn)
 	}
 
 	return nil
@@ -457,6 +460,16 @@ func (c *ClusterThrottleController) Start(threadiness int, stopCh <-chan struct{
 
 	klog.InfoS("Started ClusterThrottleController workers", "threadiness", threadiness)
 	return nil
+}
+
+func (c *ClusterThrottleController) enqueueClusterThrottleAfter(obj interface{}, duration time.Duration) {
+	var key string
+	var err error
+	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
+		utilruntime.HandleError(err)
+		return
+	}
+	c.workqueue.AddAfter(key, duration)
 }
 
 func (c *ClusterThrottleController) enqueueClusterThrottle(obj interface{}) {

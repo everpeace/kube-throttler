@@ -30,20 +30,38 @@ type TemporaryThresholdOverride struct {
 	Threshold ResourceAmount `json:"threshold"`
 }
 
-func (o TemporaryThresholdOverride) IsActive(now time.Time) (bool, error) {
+func (o TemporaryThresholdOverride) BeginTime() (time.Time, error) {
 	var err error
-	var beginTime, endTime time.Time
+	var beginTime time.Time
 	if o.Begin != "" {
 		beginTime, err = time.Parse(time.RFC3339, o.Begin)
 		if err != nil {
-			return false, errors.Wrap(err, "Failed to parse Begin")
+			return beginTime, errors.Wrap(err, "Failed to parse Begin")
 		}
 	}
+	return beginTime, nil
+}
+
+func (o TemporaryThresholdOverride) EndTime() (time.Time, error) {
+	var endTime time.Time
 	if o.End != "" {
+		var err error
 		endTime, err = time.Parse(time.RFC3339, o.End)
 		if err != nil {
-			return false, errors.Wrap(err, "Failed to parse End")
+			return endTime, errors.Wrap(err, "Failed to parse End")
 		}
+	}
+	return endTime, nil
+}
+
+func (o TemporaryThresholdOverride) IsActive(now time.Time) (bool, error) {
+	beginTime, err := o.BeginTime()
+	if err != nil {
+		return false, err
+	}
+	endTime, err := o.EndTime()
+	if err != nil {
+		return false, err
 	}
 
 	begin := (beginTime.Before(now) || beginTime.Equal(now))
