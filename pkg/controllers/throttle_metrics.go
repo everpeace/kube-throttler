@@ -120,7 +120,7 @@ func (r *ThrottleMetricsRecorder) recordThrottleMetrics(thr *v1alpha1.Throttle) 
 	r.recordResourceRequests(r.specThresholdResourceRequestsGauge.MustCurryWith(labels), thr.Spec.Threshold.ResourceRequests)
 
 	r.recordIsResourceCountThrottled(r.statusThrottledResourceCountsGauge.MustCurryWith(labels), thr.Status.Throttled.ResourceCounts)
-	r.recordIsResourceRequestsThrottled(r.specThresholdResourceRequestsGauge.MustCurryWith(labels), thr.Status.Throttled.ResourceRequests)
+	r.recordIsResourceRequestsThrottled(r.statusThrottledResourceRequstsGauge.MustCurryWith(labels), thr.Status.Throttled.ResourceRequests)
 
 	r.recordResourceCounts(r.statusUsedResourceCountsGauge.MustCurryWith(labels), thr.Status.Used.ResourceCounts)
 	r.recordResourceRequests(r.statusUsedResourceRequestsGauge.MustCurryWith(labels), thr.Status.Used.ResourceRequests)
