@@ -61,8 +61,8 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	command := app.NewSchedulerCommand(
-    ...
-    app.WithPlugin(kubethrottler.PluginName, kubethrottler.NewPlugin),
+		...
+		app.WithPlugin(kubethrottler.PluginName, kubethrottler.NewPlugin),
 	)
 
 	logs.InitLogs()
