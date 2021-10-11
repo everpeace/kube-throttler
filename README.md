@@ -1,70 +1,94 @@
-# kube-throttler : throttling your pods in kubernetes cluster.
-[![Build Status](https://travis-ci.org/everpeace/kube-throttler.svg?branch=master)](https://travis-ci.org/everpeace/kube-throttler) 
-[![Docker Pulls](https://img.shields.io/docker/pulls/everpeace/kube-throttler.svg)](https://hub.docker.com/r/everpeace/kube-throttler/)
+# kube-throttler : throttling your pods in kubernetes cluster
 
 `kube-throttler` enables you to throttle your pods.   It means that `kube-throttler` can prohibit to schedule any pods when it detects total amount of computational resource(in terms of `resources.requests` field) or the count of `Running` pods may exceeds a threshold .
 
 `kube-throttler` provides you very flexible and fine-grained throttle control.  You can specify a set of pods which you want to throttle by [label selector](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/) and its threshold by `Throttle`/`ClusterThrottle` CRD (see [deploy/0-crd.yaml](deploy/0-crd.yaml) for complete definition).
 
-Throttle control is fully dynamic.  Once you update throttle setting, `kube-throttler` follow the setting and change its status in up-to-date. 
+Throttle control is fully dynamic.  Once you update throttle setting, `kube-throttler` follow the setting and change its status in up-to-date.
 
+## What differs from `Quota`?
 
-### What differs from `Quota`?  
-`Quota` returns error when you tried to create pods if you requested resource which exceeds the quota.  However `Throttle` won't return any errors when creating pods but keep your pods stay `Pending` state by just throttling running pods.  
+`Quota` returns error when you tried to create pods if you requested resource which exceeds the quota.  However `Throttle` won't return any errors when creating pods but keep your pods stay `Pending` state by just throttling running pods.
 
-And `Quota` is based on `Namespace` which is the unit of multi tenancy in Kubernetes.  `Throttle` provides a kind of virtual computational resource pools in more dynamic and more finer grained way. 
-  
+And `Quota` is based on `Namespace` which is the unit of multi tenancy in Kubernetes.  `Throttle` provides a kind of virtual computational resource pools in more dynamic and more finer grained way.
+
 ## Installation
 
-`kube-throttler` works as [kubernetes scheduler extender](https://github.com/kubernetes/community/blob/master/contributors/design-proposals/scheduling/scheduler_extender.md).
+`kube-throttler` is implemented as a kubernetes scheduler plugin by [Scheduling Framework](https://kubernetes.io/docs/concepts/scheduling-eviction/scheduling-framework/).
 
-So, installation will be two steps
+There are two ways to use `kube-throttler`:
 
-1. deploy `kube-throttler` in your cluster
-2. configure your `kube-scheduler` to integrate `kube-throttler`
+- Using pre-build binary
+- Integrate `kube-throttler` with your scheduler plugins
 
-### 1. deploy `kube-throttler` in your cluster
+### Pre-build binary
+
+`kube-throttler` ships pre-build binary/container images which `kube-throttler` is integrated with kube-scheduler.
+
+#### 1. deploy `kube-throttler` in your cluster
 
 ```shell
 kubectl create -f deploy/
-``` 
+```
 
 This creates:
+
 - `kube-throttler` namespace, service accounts, RBAC entries
   - this will create a cluster role and cluster role binding.  please see [deploy/2-rbac.yaml](deploy/2-rbac.yaml) for detail.
-- `kube-throttller` deployment and its service so that kubernetes scheduler connect to it.
-  - its throttler name is `kube-throttler`
-  - its target scheduler is `my-scheduler`  (this throttler only counts running pods which is responsible for `my-scheduler`)
-  - if you want to change this, please see [`application.conf`  in `kube-throttler-application-ini` configmap](deploy/3-deployment.yaml) 
+- custom `kube-throttler` integrated `kube-scheduler` [deployment](deployment.yaml)
+  - with sample [scheduler config](deploy/config.yaml)
+    - scheduler name is `my-scheduler`
+    - throttler name is `kube-throttler`
 
+### Integrate kube-throttler with your kube-scheduler plugins
 
-### 2. configure your `kube-scheduler`
+#### 1. Register `kube-throttler` in your scheduler
 
-`kube-scheduler` supports policy based configuration.  You will need to set `kube-throttler` as an extender like below:
+You need to register `kube-throttler` to your scheduler by calling `app.WithPlugin()` like this:
 
-```json
-{
-  "kind" : "Policy",
-  "apiVersion" : "v1",
- ...
-  "extenders" : [
-    {
-        "urlPrefix": "http://extender.kube-throttler/",
-        "filterVerb": "check_throttle",
-        "prioritizeVerb": "",
-        "preemptVerb": "preempt_if_not_throttled",
-        "bindVerb": "",
-        "weight": 1,
-        "enableHttps": false,
-        "nodeCacheCapable": false
-    }
-  ]
+```go
+...
+import (
+	"math/rand"
+	"time"
+
+	kubethrottler "github.com/everpeace/kube-throttler/pkg/scheduler_plugin"
+	"k8s.io/component-base/logs"
+	"k8s.io/kubernetes/cmd/kube-scheduler/app"
+)
+
+func main() {
+	rand.Seed(time.Now().UnixNano())
+
+	command := app.NewSchedulerCommand(
+    ...
+    app.WithPlugin(kubethrottler.PluginName, kubethrottler.NewPlugin),
+	)
+
+	logs.InitLogs()
+	defer logs.FlushLogs()
+
+	if err := command.Execute(); err != nil {
+		os.Exit(1)
+	}
 }
 ```
 
-please see [example/my-scheudler.yaml](example/my-scheduler.yaml) for complete example.
+See these documents and repos for details of Scheduling Framework:
+
+- [Scheduling Framework's Official Document](https://kubernetes.io/docs/concepts/scheduling-eviction/scheduling-framework/)
+- [Scheduler Plugins - Repository for out-of-tree scheduler plugins based on the scheduler framework.](https://github.com/kubernetes-sigs/scheduler-plugins)
+
+### 2. add roles to your scheduler service account
+
+`kube-throttler` requires [`kube-throttler`] cluster roles defined in [deploy/rbac.yaml](deploy/rbac.yaml)
+
+### 3. enable kube-throttler in your scheduler config
+
+You need to enable `kube-throttler` in your scheduler config.  See [deploy/config.yaml](deploy/config.yaml)
 
 ## `Throttle` CRD
+
 a `Throttle` custom resource defines three things:
 
 - throttler name which is responsible for this `Throttle` custom resource.
@@ -130,7 +154,7 @@ status:
 User sometimes increase/decrease threshold value.  You can edit `spec.threshold` directly.  However, what if the increase/decrease is expected in limited term??  Temporary threshold overrides can solve it.
 
 Temporary threshold overrides provides declarative threshold override.  It means, override automatically activated when the term started and expired automatically when the term finished.  It would greatly reduces operational tasks.
- 
+
 `spec` can have `temporaryThresholdOverrides` like this:
 
 ```yaml
@@ -177,6 +201,7 @@ resourceRequests:
 These calculated threshold value are recoreded in `staus.calculatedThrottle` field.  __The field matters when deciding throttle is active or not.__
 
 ## How `kube-throttler` works
+
 I describe a simple scenario here.  _Note that this scenario holds with `ClusterThrottle`.  The only difference between them is `ClusterThrottles` can targets pods in multiple namespaces but `Throttle` can targets pods only in the same namespace with it._
 
 - define a throttle `t1` which targets `throttle=t1` label and threshold `cpu=200m` and `memory=1Gi`.
@@ -332,7 +357,7 @@ status:
     resourceRequests:
       cpu: "0.500"
       memory: "536870912"
-``` 
+```
 
 Now, `t1` remains `cpu:200m` capacity.  Then, create `pod3` requesting `cpu:300m`.  `pod3` stays `Pending` state because `t1` does not have enough capacity on `cpu` resources.  
 
@@ -350,57 +375,54 @@ Events:
 ```
 
 ## Monitoring with Prometheus
-`kube-throttler` exports prometheus metrics powered by [Kamon](https://kamon.io/). metrics are served on `http://kube-throttler.kube-throttler.svc:9095/metrics`.
 
-`kube-throttler` exports metrics below:
+`kube-throttler` exports prometheus metrics. Metrics are served on kube-scheduler's metrics endpoint. `kube-throttler` exports metrics below:
 
 | metrics name | definition | example |
---------------|------------|---------   
-| throttle_status_throttled_resourceRequests | resourceRequests of the throttle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`throttle_status_throttled_resourceRequests{name="t1", namespace="default",uuid="...",resource="cpu"} 1.0`     
-| throttle_status_throttled_resourceCounts | resourceCounts of the throttle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`throttle_status_throttled_resourceRequests{name="t1", namespace="default",uuid="...",resource="pod"} 1.0`     
-| throttle_status_used_resourceRequests | used amount of resource requests of the throttle |`throttle_status_used_resourceRequests{name="t1", namespace="default",uuid="...",resource="cpu"} 200`     
+--------------|------------|---------
+| throttle_status_throttled_resourceRequests | resourceRequests of the throttle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`throttle_status_throttled_resourceRequests{name="t1", namespace="default",uuid="...",resource="cpu"} 1.0`
+| throttle_status_throttled_resourceCounts | resourceCounts of the throttle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`throttle_status_throttled_resourceRequests{name="t1", namespace="default",uuid="...",resource="pod"} 1.0`
+| throttle_status_used_resourceRequests | used amount of resource requests of the throttle |`throttle_status_used_resourceRequests{name="t1", namespace="default",uuid="...",resource="cpu"} 200`
 | throttle_status_used_resourceCounts | used resource counts of the throttle |`throttle_status_used_resourceCounts{name="t1", namespace="default",uuid="...",resource="pod"} 2`     
-| throttle_status_calculated_threshold_resourceRequests | calculated threshold on specific resourceRequests of the throttle |`throttle_status_calculated_threshold_resourceRequests{name="t1", namespace="default",uuid="...",resource="pod"} 2`     
-| throttle_status_calculated_threshold_resourceCounts | calculated threshold on specific resourceCounts of the throttle |`throttle_status_calculated_threshold_resourceCounts{name="t1", namespace="default",uuid="...",resource="cpu"} 200`     
-| throttle_spec_threshold_resourceRequests | threshold on specific resourceRequests of the throttle |`throttle_spec_threshold_resourceRequests{name="t1", namespace="default",uuid="...",resource="pod"} 2`     
-| throttle_spec_threshold_resourceCounts | threshold on specific resourceCounts of the throttle |`throttle_spec_threshold_resourceCounts{name="t1", namespace="default",uuid="...",resource="cpu"} 200`     
-| clusterthrottle_status_throttled_resourceRequests | resourceRequests of the clusterthrottle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`clusterthrottle_status_throttled_resourceRequests{name="clt1",uuid="...",resource="cpu"} 1.0`     
-| clusterthrottle_status_throttled_resourceCounts | resourceCounts of the clusterthrottle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`clusterthrottle_status_throttled_resourceRequests{name="clt1",uuid="...",resource="pod"} 1.0`     
-| clusterthrottle_status_used_resourceRequests | used amount of resource requests of the clusterthrottle |`clusterthrottle_status_used_resourceRequests{name="t1",uuid="...",resource="cpu"} 200`     
-| clusterthrottle_status_used_resourceCounts | used resource counts of the clusterthrottle |`clusterthrottle_status_used_resourceCounts{name="clt1",uuid="...",resource="pod"} 2`     
-| clusterthrottle_status_calculated_threshold_resourceRequests | calculated threshold on specific resourceRequests of the clusterthrottle |`clusterthrottle_status_calculated_threshold_resourceRequests{name="t1",uuid="...",resource="pod"} 2`     
-| clusterthrottle_status_calculated_threshold_resourceCounts | calculated threshold on specific resourceCounts of the clusterthrottle |`clusterthrottle_status_calculated_threshold_resourceCounts{name="t1",uuid="...",resource="cpu"} 200`     
-| clusterthrottle_spec_threshold_resourceRequests | threshold on specific resourceRequests of the clusterthrottle |`clusterthrottle_spec_threshold_resourceRequests{name="t1",uuid="...",resource="pod"} 2`     
-| clusterthrottle_spec_threshold_resourceCounts | threshold on specific resourceCounts of the clusterthrottle |`clusterthrottle_spec_threshold_resourceCounts{name="t1",uuid="...",resource="cpu"} 200`     
+| throttle_status_calculated_threshold_resourceRequests | calculated threshold on specific resourceRequests of the throttle |`throttle_status_calculated_threshold_resourceRequests{name="t1", namespace="default",uuid="...",resource="pod"} 2`
+| throttle_status_calculated_threshold_resourceCounts | calculated threshold on specific resourceCounts of the throttle |`throttle_status_calculated_threshold_resourceCounts{name="t1", namespace="default",uuid="...",resource="cpu"} 200`
+| throttle_spec_threshold_resourceRequests | threshold on specific resourceRequests of the throttle |`throttle_spec_threshold_resourceRequests{name="t1", namespace="default",uuid="...",resource="pod"} 2`
+| throttle_spec_threshold_resourceCounts | threshold on specific resourceCounts of the throttle |`throttle_spec_threshold_resourceCounts{name="t1", namespace="default",uuid="...",resource="cpu"} 200`
+| clusterthrottle_status_throttled_resourceRequests | resourceRequests of the clusterthrottle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`clusterthrottle_status_throttled_resourceRequests{name="clt1",uuid="...",resource="cpu"} 1.0`
+| clusterthrottle_status_throttled_resourceCounts | resourceCounts of the clusterthrottle is throttled or not on specific resource (`1=throttled`, `0=not throttled`). |`clusterthrottle_status_throttled_resourceRequests{name="clt1",uuid="...",resource="pod"} 1.0`
+| clusterthrottle_status_used_resourceRequests | used amount of resource requests of the clusterthrottle |`clusterthrottle_status_used_resourceRequests{name="t1",uuid="...",resource="cpu"} 200`
+| clusterthrottle_status_used_resourceCounts | used resource counts of the clusterthrottle |`clusterthrottle_status_used_resourceCounts{name="clt1",uuid="...",resource="pod"} 2`
+| clusterthrottle_status_calculated_threshold_resourceRequests | calculated threshold on specific resourceRequests of the clusterthrottle |`clusterthrottle_status_calculated_threshold_resourceRequests{name="t1",uuid="...",resource="pod"} 2`
+| clusterthrottle_status_calculated_threshold_resourceCounts | calculated threshold on specific resourceCounts of the clusterthrottle |`clusterthrottle_status_calculated_threshold_resourceCounts{name="t1",uuid="...",resource="cpu"} 200`
+| clusterthrottle_spec_threshold_resourceRequests | threshold on specific resourceRequests of the clusterthrottle |`clusterthrottle_spec_threshold_resourceRequests{name="t1",uuid="...",resource="pod"} 2`
+| clusterthrottle_spec_threshold_resourceCounts | threshold on specific resourceCounts of the clusterthrottle |`clusterthrottle_spec_threshold_resourceCounts{name="t1",uuid="...",resource="cpu"} 200`
 
-other metrics exported by [kamon-system-metrics](https://github.com/kamon-io/kamon-system-metrics), [kamon-akka](https://github.com/kamon-io/kamon-akka), [kamon-akka-http](https://github.com/kamon-io/kamon-akka-http) are available.
-
-### `ServiceMonitor` of Prometheus Operator 
-Used [prometheus-operator](https://github.com/coreos/prometheus-operator), this repository ships `ServiceMonitor` spec.  So, setup is super easy.
-
-```shell
-kubectl create -f prometheus/servicemonitor.yaml
-```
-
-# License
+## License
 
 Apache License 2.0
 
-# Change Logs
+## Change Logs (`< 1.0.0`)
+
+Since `1.0.0`, change logs have been published in Github releases.
+
 ## `0.7.4`
+
 - Fixed
   - fail fast the liveness probe when kubernetes api watch stopped(#23)
   
 ## `0.7.3`
+
 - Fixed
   - Watching Kubernetes events stopped when some watch source faced error (#22)
 
 ## `0.7.2`
+
 - Changed
   - upgraded [`skuber`](https://github.com/doriordan/skuber) version to `v2.2.0`
   - periodic throttle reconciliation which limits those which really need to
 
 ## `0.7.1`
+
 - Fixed
   - reduced memory usage for large cluster.  `kube-throttler` does not cache completed(`status.phase=Succeeded|Failed`) pods anymore.  
 
@@ -441,7 +463,7 @@ all changes are for performance issue.
   - "too old resource version" on init reconciliation for clusters with large number of throttles/clusterthrottles
 - Changed
   - log level for all the metrics changes is now debug.
- 
+
 ## `0.5.0`
 
 - Added
@@ -454,6 +476,7 @@ all changes are for performance issue.
   - __BREAKING CHANGE__:  change `spec.selector` object schema to support OR-ed multiple label selectors and `namespaceSelector` in clusterthrottles. (#6)
 
 ### Migration Notes from `0.3.x` or before
+
 - stop kube-throttlers (recommend to make `replicas` to 0)
 - dump your all throttle/clusterthrottles `kubectl get clusterthrottles,throttles --all-namespaces`
 - replace `selector.matchLabels` with `selector.selectorTerms[0].podSelecter.matchLabels` in your crs
@@ -478,37 +501,45 @@ all changes are for performance issue.
 - apply updated throttles/clusterthrottoles crs.
  
 ## `0.3.2`
+
 - Changed
   - large refactoring #4 (moving throttle logic to model package from controller package)
   - skip un-marshalling `matchFields` field in `NodeSelectorTerm`.
     - the attribute has been supported since kubernetes `v1.11`.
 
 ## `0.3.1`
+
 - Changed
   - sanitize invalid characters in metrics labels
   - remove `metadata.annotations` from metrics labels
  
 ## `0.3.0`
+
 - Added
   - `resourceCounts.pod` in `Throttle`/`ClusterThrottle` so that user can throttle count of `running` pod.
 - Changed
   - previous compute resource threshold should be defined in `resourceRequests.{cpu|memory}`.
- 
+
 ## `0.2.0`
+
 - introduce `ClusterThrottle` which can target pods in multiple namespaces.
 - make `Throttle`/`ClusterThrottle` not burstable. This means if some throttle remains `cpu:200m` and pod requesting `cpu:300` is trie to schedule, kube-throttler does not allow the pod to be scheduled.  At that case, message of `throttles[insufficient]=<throttle name>` will be returned to scheduler.
 
 ## `0.1.3`
+
 - `watch-buff-size` can be configurable for large pods
 - properly handle initial sync error
 
 ## `0.1.2`
+
 - multi-throttler, multi-scheduler deployment support
   - `throttlerName` is introduced in `Throttle` CRD
   - `throttler-name` and `target-scheduler-names` are introduced in throttler configuration
 
 ## `0.1.1`
+
 - fixed returning filter error when normal throttled situation.
 
 ## `0.1.0`
+
 first public release.
