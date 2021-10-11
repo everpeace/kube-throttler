@@ -12,3 +12,7 @@ configMapGenerator:
   - config.yaml
 generatorOptions:
   disableNameSuffixHash: true
+images:
+- name: kube-throttler
+  newName: ghcr.io/everpeace/kube-throttler
+  newTag: latest
