@@ -17,11 +17,54 @@
 
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	"time"
+
+	"github.com/pkg/errors"
+)
 
 type TemporaryThresholdOverride struct {
-	Begin  metav1.Time `json:"begin"`
-	EndStr metav1.Time `json:"end"`
+	Begin string `json:"begin"`
+	End   string `json:"end"`
 	// +kubebuilder:validation:Required
 	Threshold ResourceAmount `json:"threshold"`
+}
+
+func (o TemporaryThresholdOverride) BeginTime() (time.Time, error) {
+	var err error
+	var beginTime time.Time
+	if o.Begin != "" {
+		beginTime, err = time.Parse(time.RFC3339, o.Begin)
+		if err != nil {
+			return beginTime, errors.Wrap(err, "Failed to parse Begin")
+		}
+	}
+	return beginTime, nil
+}
+
+func (o TemporaryThresholdOverride) EndTime() (time.Time, error) {
+	var endTime time.Time
+	if o.End != "" {
+		var err error
+		endTime, err = time.Parse(time.RFC3339, o.End)
+		if err != nil {
+			return endTime, errors.Wrap(err, "Failed to parse End")
+		}
+	}
+	return endTime, nil
+}
+
+func (o TemporaryThresholdOverride) IsActive(now time.Time) (bool, error) {
+	beginTime, err := o.BeginTime()
+	if err != nil {
+		return false, err
+	}
+	endTime, err := o.EndTime()
+	if err != nil {
+		return false, err
+	}
+
+	begin := (beginTime.Before(now) || beginTime.Equal(now))
+	end := (endTime.IsZero() || (now.Before(endTime) || now.Equal(endTime)))
+	return begin && end, nil
 }

@@ -23,7 +23,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/everpeace/kube-throttler/pkg/scheduler_plugin"
+	kubethrottler "github.com/everpeace/kube-throttler/pkg/scheduler_plugin"
 	"k8s.io/component-base/logs"
 	"k8s.io/kubernetes/cmd/kube-scheduler/app"
 )
@@ -31,7 +31,7 @@ import (
 func kubeSchedulerCmd() *cobra.Command {
 	rand.Seed(time.Now().UnixNano())
 	command := app.NewSchedulerCommand(
-		app.WithPlugin(scheduler_plugin.Name, scheduler_plugin.New),
+		app.WithPlugin(kubethrottler.PluginName, kubethrottler.NewPlugin),
 	)
 	command.Short = "run kube-scheduler with kube-throttler plugin (need to enable 'KubeThrottler' plugin in config)"
 	// TODO: once we switch everything over to Cobra commands, we can go back to calling

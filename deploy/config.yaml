@@ -1,0 +1,20 @@
+apiVersion: kubescheduler.config.k8s.io/v1beta1
+kind: KubeSchedulerConfiguration
+leaderElection:
+  leaderElect: false # replicas: 1
+profiles:
+- schedulerName: my-scheduler
+  plugins:
+    preFilter:
+      enabled:
+      - name: kube-throttler
+        weight: 1
+    reserve:
+      enabled:
+      - name: kube-throttler
+        weight: 1
+  pluginConfig:
+  - name: kube-throttler
+    args: 
+      name: kube-throttler
+      targetSchedulerName: my-scheduler

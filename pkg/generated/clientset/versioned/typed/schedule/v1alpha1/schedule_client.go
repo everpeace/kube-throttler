@@ -31,7 +31,7 @@ type ScheduleV1alpha1Interface interface {
 	ThrottlesGetter
 }
 
-// ScheduleV1alpha1Client is used to interact with features provided by the schedule.k8s.everpeace.github.co group.
+// ScheduleV1alpha1Client is used to interact with features provided by the schedule.k8s.everpeace.github.com group.
 type ScheduleV1alpha1Client struct {
 	restClient rest.Interface
 }
