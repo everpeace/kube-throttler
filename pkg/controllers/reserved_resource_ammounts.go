@@ -18,12 +18,12 @@
 package controllers
 
 import (
-	"fmt"
-	"reflect"
+	"strings"
 
 	schedulev1alpha1 "github.com/everpeace/kube-throttler/pkg/apis/schedule/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/keymutex"
 )
@@ -41,7 +41,7 @@ func newReservedResourceAmounts() *reservedResourceAmounts {
 	}
 }
 
-func (c *reservedResourceAmounts) addPod(nn types.NamespacedName, pod *corev1.Pod) {
+func (c *reservedResourceAmounts) addPod(nn types.NamespacedName, pod *corev1.Pod) bool {
 	c.keyMutex.LockKey(nn.String())
 	defer func() {
 		_ = c.keyMutex.UnlockKey(nn.String())
@@ -51,8 +51,8 @@ func (c *reservedResourceAmounts) addPod(nn types.NamespacedName, pod *corev1.Po
 		c.cache[nn] = podResourceAmountMap{}
 	}
 
-	c.cache[nn].add(pod)
 	klog.V(5).InfoS("reservedResourceAmounts.addPod", "Pod", pod.Namespace+"/"+pod.Name, "NamespacedName", nn.String(), "Cache", c.cache)
+	return c.cache[nn].add(pod)
 }
 
 func (c *reservedResourceAmounts) removePod(nn types.NamespacedName, pod *corev1.Pod) bool {
@@ -70,44 +70,35 @@ func (c *reservedResourceAmounts) removePod(nn types.NamespacedName, pod *corev1
 	return removed
 }
 
-func (c *reservedResourceAmounts) moveThrottleAssignmentForPods(fromPod *corev1.Pod, fromThrs []types.NamespacedName, toPod *corev1.Pod, toThrs []types.NamespacedName) {
-	fromThrSet := map[types.NamespacedName]struct{}{}
-	toThrSet := map[types.NamespacedName]struct{}{}
-	for _, nn := range fromThrs {
-		fromThrSet[nn] = struct{}{}
+func (c *reservedResourceAmounts) moveThrottleAssignmentForPods(pod *corev1.Pod, fromThrs map[types.NamespacedName]struct{}, toThrs map[types.NamespacedName]struct{}) {
+	removedNNs := []string{}
+	for nn := range fromThrs {
+		_ = c.removePod(nn, pod)
+		removedNNs = append(removedNNs, nn.String())
 	}
-	for _, nn := range toThrs {
-		toThrSet[nn] = struct{}{}
-		delete(fromThrSet, nn)
+	addedNNs := []string{}
+	for nn := range toThrs {
+		_ = c.addPod(nn, pod)
+		addedNNs = append(addedNNs, nn.String())
 	}
-	for _, nn := range fromThrs {
-		delete(toThrSet, nn)
-	}
-	if v5 := klog.V(5); v5.Enabled() {
-		v5.InfoS(
-			"reservedResourceAmounts.moveThrottleAssignmentForPods",
-			"FromPod", fromPod.Namespace+"/"+fromPod.Name,
-			"FromThrNNs", fmt.Sprint(reflect.ValueOf(fromThrSet).MapKeys()),
-			"TromPod", toPod.Namespace+"/"+toPod.Name,
-			"ToThrNNs", fmt.Sprint(reflect.ValueOf(toThrSet).MapKeys()),
+	if len(removedNNs) > 0 || len(addedNNs) > 0 {
+		klog.V(2).InfoS(
+			"Moved (Cluster)Throttle Assignment For Pod In Reservation",
+			"Pod", pod.Namespace+"/"+pod.Name,
+			"FromThrottles", strings.Join(removedNNs, ","),
+			"ToThrottles", strings.Join(addedNNs, ","),
 		)
-	}
-	for nn := range toThrSet {
-		c.addPod(nn, toPod)
-	}
-	for nn := range fromThrSet {
-		c.removePod(nn, toPod)
 	}
 }
 
-func (c *reservedResourceAmounts) reservedResourceAmount(nn types.NamespacedName) schedulev1alpha1.ResourceAmount {
+func (c *reservedResourceAmounts) reservedResourceAmount(nn types.NamespacedName) (schedulev1alpha1.ResourceAmount, sets.String) {
 	c.keyMutex.LockKey(nn.String())
 	defer func() {
 		_ = c.keyMutex.UnlockKey(nn.String())
 	}()
 	podResourceAmountMap, ok := c.cache[nn]
 	if !ok {
-		return schedulev1alpha1.ResourceAmount{}
+		return schedulev1alpha1.ResourceAmount{}, sets.NewString()
 	}
 	return podResourceAmountMap.totalResoruceAmount()
 }
@@ -115,9 +106,11 @@ func (c *reservedResourceAmounts) reservedResourceAmount(nn types.NamespacedName
 // pod's namespacedname --> ResourceAmount of the pod
 type podResourceAmountMap map[types.NamespacedName]schedulev1alpha1.ResourceAmount
 
-func (c podResourceAmountMap) add(pod *corev1.Pod) {
+func (c podResourceAmountMap) add(pod *corev1.Pod) bool {
 	nn := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}
+	_, existed := c[nn]
 	c[nn] = schedulev1alpha1.ResourceAmountOfPod(pod)
+	return !existed
 }
 
 func (c podResourceAmountMap) remove(pod *corev1.Pod) bool {
@@ -130,10 +123,12 @@ func (c podResourceAmountMap) removeByNN(nn types.NamespacedName) bool {
 	return ok
 }
 
-func (c podResourceAmountMap) totalResoruceAmount() schedulev1alpha1.ResourceAmount {
+func (c podResourceAmountMap) totalResoruceAmount() (schedulev1alpha1.ResourceAmount, sets.String) {
 	result := schedulev1alpha1.ResourceAmount{}
-	for _, ra := range c {
+	nns := sets.NewString()
+	for nn, ra := range c {
+		nns.Insert(nn.String())
 		result = result.Add(ra)
 	}
-	return result
+	return result, nns
 }

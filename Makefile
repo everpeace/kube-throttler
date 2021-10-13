@@ -138,11 +138,11 @@ dev-scheduler-conf:
 dev-run: dev-scheduler-conf
 	go run main.go kube-scheduler \
 		--config=./hack/dev/scheduler-config.yaml \
-		-v=4
+		-v=3
 
 .PHONY: dev-run-debug
 dev-run-debug: dev-scheduler-conf
 	dlv debug --headless --listen=0.0.0.0:2345 --api-version=2 --log main.go -- kube-scheduler \
 		--config=./hack/dev/scheduler-config.yaml \
 		--kubeconfig=$(HOME)/.kube/config \
-		--v=4
+		--v=3

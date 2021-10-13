@@ -105,19 +105,23 @@ func (c *ThrottleController) reconcile(key string) error {
 		return err
 	}
 
-	affectedPods, err := c.affectedPods(thr)
+	affectedNonTerminatedPods, affectedTerminatedPods, err := c.affectedPods(thr)
 	if err != nil {
 		return err
 	}
-	if len(affectedPods) > 0 {
-		klog.V(2).InfoS("Affected pods detected", "Throttle", thr.Namespace+"/"+thr.Name, "#AffectedPods", len(affectedPods))
+	if len(affectedNonTerminatedPods)+len(affectedTerminatedPods) > 0 {
+		klog.V(2).InfoS(
+			"Affected pods detected",
+			"Throttle", thr.Namespace+"/"+thr.Name,
+			"#AffectedPods(NonTerminated)", len(affectedNonTerminatedPods),
+			"#AffectedPods(Terminated)", len(affectedTerminatedPods),
+		)
 	}
 
 	used := schedulev1alpha1.ResourceAmount{}
-	for _, p := range affectedPods {
+	for _, p := range affectedNonTerminatedPods {
 		used = used.Add(schedulev1alpha1.ResourceAmountOfPod(p))
 	}
-
 	newStatus := thr.Status.DeepCopy()
 	newStatus.Used = used
 	calculatedThreshold := thr.Spec.CalculateThreshold(now)
@@ -147,8 +151,22 @@ func (c *ThrottleController) reconcile(key string) error {
 	}
 
 	// Once status is updated, affected pods is safe to un-reserve from reserved resoruce amount cache
-	for _, p := range affectedPods {
-		c.UnReserveOnThrottle(p, thr)
+	// We make sure to un-reserve terminated pods too here because it misses to unreserve terminated pods
+	// when reconcile is rate-limitted
+	unreservedPods := []string{}
+	for _, p := range append(affectedNonTerminatedPods, affectedTerminatedPods...) {
+		unreserved := c.UnReserveOnThrottle(p, thr)
+		if unreserved {
+			unreservedPods = append(unreservedPods, p.Namespace+"/"+p.Name)
+		}
+	}
+	if len(unreservedPods) > 0 {
+		klog.V(2).InfoS(
+			"Pods are un-reserved for Throttle",
+			"Throttle", thr.Namespace+"/"+thr.Name,
+			"#Pods", len(unreservedPods),
+			"Pods", strings.Join(unreservedPods, ","),
+		)
 	}
 
 	nextOverrideHappensIn, err := thr.Spec.NextOverrideHappensIn(now)
@@ -168,29 +186,34 @@ func (c *ThrottleController) isResponsibleFor(thr *schedulev1alpha1.Throttle) bo
 }
 
 func (c *ThrottleController) shouldCountIn(pod *corev1.Pod) bool {
-	return pod.Spec.SchedulerName == c.targetSchedulerName && isScheduled(pod) && isNotFinished(pod)
+	return pod.Spec.SchedulerName == c.targetSchedulerName && isScheduled(pod)
 }
 
-func (c *ThrottleController) affectedPods(thr *schedulev1alpha1.Throttle) ([]*v1.Pod, error) {
+func (c *ThrottleController) affectedPods(thr *schedulev1alpha1.Throttle) ([]*v1.Pod, []*v1.Pod, error) {
 	pods, err := c.podInformer.Lister().Pods(thr.Namespace).List(labels.Everything())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	affectedPods := []*v1.Pod{}
+	nonterminatedPods := []*v1.Pod{}
+	terminatedPods := []*v1.Pod{}
 	for _, pod := range pods {
 		if !(c.shouldCountIn(pod)) {
 			continue
 		}
 		match, err := thr.Spec.Selector.MatchesToPod(pod)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if match {
-			affectedPods = append(affectedPods, pod)
+			if isNotFinished(pod) {
+				nonterminatedPods = append(nonterminatedPods, pod)
+			} else {
+				terminatedPods = append(nonterminatedPods, pod)
+			}
 		}
 	}
-	return affectedPods, nil
+	return nonterminatedPods, terminatedPods, nil
 }
 
 func (c *ThrottleController) affectedThrottles(pod *v1.Pod) ([]*schedulev1alpha1.Throttle, error) {
@@ -221,42 +244,38 @@ func (c *ThrottleController) Reserve(pod *v1.Pod) error {
 	if err != nil {
 		return err
 	}
+	reservedThrNNs := []string{}
 	for _, thr := range throttles {
-		nn := types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}
-		c.cache.addPod(nn, pod)
-		reserved := c.cache.reservedResourceAmount(nn)
-		klog.V(3).InfoS("Pod is reserved for affected throttle", "Pod", pod.Namespace+"/"+pod.Name, "Throttle", thr.Name, "CurrentReservedAmount", reserved)
+		reserved := c.ReserveOnThrottle(pod, thr)
+		if reserved {
+			reservedThrNNs = append(reservedThrNNs, thr.Namespace+"/"+thr.Name)
+		}
 	}
-	if len(throttles) > 0 {
-		klog.V(2).InfoS("Pod is reserved for affected throttles", "Pod", pod.Namespace+"/"+pod.Name, "#Throttles", len(throttles))
+	if len(reservedThrNNs) > 0 {
+		klog.V(2).InfoS(
+			"Pod is reserved for affected throttles",
+			"Pod", pod.Namespace+"/"+pod.Name,
+			"#Throttles", len(reservedThrNNs),
+			"Throttles", strings.Join(reservedThrNNs, ","),
+		)
 	}
 	return nil
 }
 
-func (c *ThrottleController) moveThrottleAssignmentForPodsInReservation(
-	fromPod *corev1.Pod,
-	fromThrs []*schedulev1alpha1.Throttle,
-	toPod *corev1.Pod,
-	toThrs []*schedulev1alpha1.Throttle,
-) {
-	fromThrNNs := []types.NamespacedName{}
-	for _, thr := range fromThrs {
-		fromThrNNs = append(fromThrNNs, types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name})
-	}
-	toThrNNs := []types.NamespacedName{}
-	for _, thr := range toThrs {
-		toThrNNs = append(toThrNNs, types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name})
-	}
-	c.cache.moveThrottleAssignmentForPods(fromPod, fromThrNNs, toPod, toThrNNs)
-}
-
-func (c *ThrottleController) UnReserveOnThrottle(pod *v1.Pod, thr *schedulev1alpha1.Throttle) {
+func (c *ThrottleController) ReserveOnThrottle(pod *v1.Pod, thr *schedulev1alpha1.Throttle) bool {
 	nn := types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}
-	removed := c.cache.removePod(nn, pod)
-	reserved := c.cache.reservedResourceAmount(nn)
-	if removed {
-		klog.V(3).InfoS("Pod is un-reserved for affected throttle", "Pod", pod.Namespace+"/"+pod.Name, "Throttle", thr.Name, "CurrentReservedAmount", reserved)
+	added := c.cache.addPod(nn, pod)
+	reservedAmt, reservedPodNNs := c.cache.reservedResourceAmount(nn)
+	if added {
+		klog.V(3).InfoS(
+			"Pod is reserved for affected throttle",
+			"Pod", pod.Namespace+"/"+pod.Name,
+			"Throttle", thr.Name,
+			"CurrentReservedAmount", reservedAmt,
+			"CurrentReservedPods", strings.Join(reservedPodNNs.List(), ","),
+		)
 	}
+	return added
 }
 
 func (c *ThrottleController) UnReserve(pod *v1.Pod) error {
@@ -264,13 +283,38 @@ func (c *ThrottleController) UnReserve(pod *v1.Pod) error {
 	if err != nil {
 		return err
 	}
+	unReservedThrNNs := []string{}
 	for _, thr := range throttles {
-		c.UnReserveOnThrottle(pod, thr)
+		unreserved := c.UnReserveOnThrottle(pod, thr)
+		if unreserved {
+			unReservedThrNNs = append(unReservedThrNNs, thr.Namespace+"/"+thr.Name)
+		}
 	}
 	if len(throttles) > 0 {
-		klog.V(2).InfoS("Pod is un-reserved for affected throttles", "Pod", pod.Namespace+"/"+pod.Name, "#Throttles", len(throttles))
+		klog.V(2).InfoS(
+			"Pod is un-reserved for affected throttles",
+			"Pod", pod.Namespace+"/"+pod.Name,
+			"#Throttles", len(unReservedThrNNs),
+			"Throttles", strings.Join(unReservedThrNNs, ","),
+		)
 	}
 	return nil
+}
+
+func (c *ThrottleController) UnReserveOnThrottle(pod *v1.Pod, thr *schedulev1alpha1.Throttle) bool {
+	nn := types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}
+	removed := c.cache.removePod(nn, pod)
+	reservedAmt, reservedPodNNs := c.cache.reservedResourceAmount(nn)
+	if removed {
+		klog.V(3).InfoS(
+			"Pod is un-reserved for affected throttle",
+			"Pod", pod.Namespace+"/"+pod.Name,
+			"Throttle", thr.Name,
+			"CurrentReservedAmount", reservedAmt,
+			"CurrentReservedPods", strings.Join(reservedPodNNs.List(), ","),
+		)
+	}
+	return removed
 }
 
 func (c *ThrottleController) CheckThrottled(pod *v1.Pod, isThrottledOnEqual bool) ([]schedulev1alpha1.Throttle, []schedulev1alpha1.Throttle, []schedulev1alpha1.Throttle, error) {
@@ -283,10 +327,10 @@ func (c *ThrottleController) CheckThrottled(pod *v1.Pod, isThrottledOnEqual bool
 	insufficient := []schedulev1alpha1.Throttle{}
 	for _, thr := range throttles {
 		affected = append(affected, *thr)
-		reserved := c.cache.reservedResourceAmount(types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name})
+		reservedAmt, reservedPodNNs := c.cache.reservedResourceAmount(types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name})
 		checkStatus := thr.CheckThrottledFor(
 			pod,
-			reserved,
+			reservedAmt,
 			isThrottledOnEqual,
 		)
 		klog.V(3).InfoS("CheckThrottled result",
@@ -295,8 +339,9 @@ func (c *ThrottleController) CheckThrottled(pod *v1.Pod, isThrottledOnEqual bool
 			"Result", checkStatus,
 			"RequestedByPod", schedulev1alpha1.ResourceAmountOfPod(pod),
 			"UsedInThrottle", thr.Status.Used,
-			"ReservedInScheduler", reserved,
-			"AmountForCheck", schedulev1alpha1.ResourceAmount{}.Add(thr.Status.Used).Add(schedulev1alpha1.ResourceAmountOfPod(pod)).Add(reserved),
+			"ReservedAmountInScheduler", reservedAmt,
+			"ReservedPodsInScheduler", strings.Join(reservedPodNNs.List(), ","),
+			"AmountForCheck", schedulev1alpha1.ResourceAmount{}.Add(thr.Status.Used).Add(schedulev1alpha1.ResourceAmountOfPod(pod)).Add(reservedAmt),
 			"Threashold", thr.Status.CalculatedThreshold.Threshold,
 		)
 		switch checkStatus {
@@ -376,17 +421,40 @@ func (c *ThrottleController) setupEventHandler() {
 				return
 			}
 
-			if isScheduled(oldPod) && isScheduled(newPod) {
-				c.moveThrottleAssignmentForPodsInReservation(oldPod, throttlesForOld, newPod, throttlesForNew)
-			}
-
+			// calc symmetric difference to handle throttle assignment change
+			throttleNNs := map[types.NamespacedName]struct{}{}
+			throttleNNsForOld := map[types.NamespacedName]struct{}{}
+			throttleNNsForNew := map[types.NamespacedName]struct{}{}
+			throttleNNsCommon := map[types.NamespacedName]struct{}{}
 			for _, thr := range throttlesForOld {
-				throttleNames.Insert(types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}.String())
+				nn := types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}
+				throttleNNs[nn] = struct{}{}
+				throttleNNsForOld[nn] = struct{}{}
 			}
 			for _, thr := range throttlesForNew {
-				throttleNames.Insert(types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}.String())
+				nn := types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}
+				throttleNNs[nn] = struct{}{}
+				throttleNNsForNew[nn] = struct{}{}
+			}
+			for nn := range throttleNNs {
+				_, inNew := throttleNNsForNew[nn]
+				_, inOld := throttleNNsForOld[nn]
+				if inOld && inNew {
+					throttleNNsCommon[nn] = struct{}{}
+				}
+			}
+			for nn := range throttleNNsCommon {
+				delete(throttleNNsForOld, nn)
+			}
+			for nn := range throttleNNsCommon {
+				delete(throttleNNsForNew, nn)
+			}
+			// handle throttle assignment chnage
+			if len(throttleNNsForOld) > 0 || len(throttleNNsForNew) > 0 {
+				c.cache.moveThrottleAssignmentForPods(newPod, throttleNNsForOld, throttleNNsForNew)
 			}
 
+			// reconcile
 			klog.V(4).InfoS("Reconciling Throttles", "Pod", newPod.Namespace+"/"+newPod.Name, "Throttles", strings.Join(throttleNames.List(), ","))
 			for _, key := range throttleNames.List() {
 				c.enqueueThrottle(cache.ExplicitKey(key))
