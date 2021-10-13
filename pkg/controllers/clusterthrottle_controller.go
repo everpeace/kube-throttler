@@ -36,7 +36,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/clock"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	corev1informer "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/cache"
@@ -108,19 +107,23 @@ func (c *ClusterThrottleController) reconcile(key string) error {
 		return err
 	}
 
-	affectedPods, err := c.affectedPods(thr)
+	affectedNonTerminatedPods, affectedTerminatedPods, err := c.affectedPods(thr)
 	if err != nil {
 		return err
 	}
-	if len(affectedPods) > 0 {
-		klog.V(2).InfoS("Affected pods detected", "ClusterThrottle", thr.Namespace+"/"+thr.Name, "#AffectedPods", len(affectedPods))
+	if len(affectedNonTerminatedPods)+len(affectedTerminatedPods) > 0 {
+		klog.V(2).InfoS(
+			"Affected pods detected",
+			"ClusterThrottle", thr.Namespace+"/"+thr.Name,
+			"#AffectedPods(NonTerminated)", len(affectedNonTerminatedPods),
+			"#AffectedPods(Terminated)", len(affectedTerminatedPods),
+		)
 	}
 
 	used := schedulev1alpha1.ResourceAmount{}
-	for _, p := range affectedPods {
+	for _, p := range affectedNonTerminatedPods {
 		used = used.Add(schedulev1alpha1.ResourceAmountOfPod(p))
 	}
-
 	newStatus := thr.Status.DeepCopy()
 	newStatus.Used = used
 	calculatedThreshold := thr.Spec.CalculateThreshold(now)
@@ -150,8 +153,22 @@ func (c *ClusterThrottleController) reconcile(key string) error {
 	}
 
 	// Once status is updated, affected pods is safe to un-reserve from reserved resoruce amount cache
-	for _, p := range affectedPods {
-		c.UnReserveOnClusterThrottle(p, thr)
+	// We make sure to un-reserve terminated pods too here because it misses to unreserve terminated pods
+	// when reconcile is rate-limitted
+	unreservedPods := []string{}
+	for _, p := range append(affectedNonTerminatedPods, affectedTerminatedPods...) {
+		unreserved := c.UnReserveOnClusterThrottle(p, thr)
+		if unreserved {
+			unreservedPods = append(unreservedPods, p.Namespace+"/"+p.Name)
+		}
+	}
+	if len(unreservedPods) > 0 {
+		klog.V(2).InfoS(
+			"Pods are un-reserved for ClusterThrottle",
+			"ClusterThrottle", thr.Namespace+"/"+thr.Name,
+			"#Pods", len(unreservedPods),
+			"Pods", strings.Join(unreservedPods, ","),
+		)
 	}
 
 	nextOverrideHappensIn, err := thr.Spec.NextOverrideHappensIn(now)
@@ -171,41 +188,48 @@ func (c *ClusterThrottleController) isResponsibleFor(thr *schedulev1alpha1.Clust
 }
 
 func (c *ClusterThrottleController) shouldCountIn(pod *corev1.Pod) bool {
-	return pod.Spec.SchedulerName == c.targetSchedulerName && isScheduled(pod) && isNotFinished(pod)
+	return pod.Spec.SchedulerName == c.targetSchedulerName && isScheduled(pod)
 }
 
-func (c *ClusterThrottleController) affectedPods(thr *schedulev1alpha1.ClusterThrottle) ([]*v1.Pod, error) {
+func (c *ClusterThrottleController) affectedPods(thr *schedulev1alpha1.ClusterThrottle) ([]*v1.Pod, []*v1.Pod, error) {
 	pods := []*corev1.Pod{}
 	nss, err := c.namespaceInformer.Lister().List(labels.Everything())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, ns := range nss {
 		podsInNs, err := c.podInformer.Lister().Pods(ns.Name).List(labels.Everything())
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		pods = append(pods, podsInNs...)
 	}
 
-	affectedPods := []*v1.Pod{}
+	nonterminatedPods := []*v1.Pod{}
+	terminatedPods := []*v1.Pod{}
 	for _, pod := range pods {
 		if !(c.shouldCountIn(pod)) {
 			continue
 		}
 		ns, err := c.namespaceInformer.Lister().Get(pod.Namespace)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+
 		match, err := thr.Spec.Selector.MatchesToPod(pod, ns)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+
 		if match {
-			affectedPods = append(affectedPods, pod)
+			if isNotFinished(pod) {
+				nonterminatedPods = append(nonterminatedPods, pod)
+			} else {
+				terminatedPods = append(terminatedPods, pod)
+			}
 		}
 	}
-	return affectedPods, nil
+	return nonterminatedPods, terminatedPods, nil
 }
 
 func (c *ClusterThrottleController) affectedClusterThrottles(pod *v1.Pod) ([]*schedulev1alpha1.ClusterThrottle, error) {
@@ -241,42 +265,38 @@ func (c *ClusterThrottleController) Reserve(pod *v1.Pod) error {
 	if err != nil {
 		return err
 	}
+	reservedThrNNs := []string{}
 	for _, thr := range throttles {
-		nn := types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}
-		c.cache.addPod(nn, pod)
-		reserved := c.cache.reservedResourceAmount(nn)
-		klog.V(3).InfoS("Pod is reserved for affected clusterthrottle", "Pod", pod.Namespace+"/"+pod.Name, "ClusterThrottle", thr.Name, "CurrentReservedAmount", reserved)
+		reserved := c.ReserveOnClusterThrottle(pod, thr)
+		if reserved {
+			reservedThrNNs = append(reservedThrNNs, thr.Namespace+"/"+thr.Name)
+		}
 	}
-	if len(throttles) > 0 {
-		klog.V(2).InfoS("Pod is reserved for affected clusterthrottles", "Pod", pod.Namespace+"/"+pod.Name, "#ClusterThrottles", len(throttles))
+	if len(reservedThrNNs) > 0 {
+		klog.V(2).InfoS(
+			"Pod is reserved for affected clusterthrottles",
+			"Pod", pod.Namespace+"/"+pod.Name,
+			"#ClusterThrottles", len(reservedThrNNs),
+			"ClusterThrottles", strings.Join(reservedThrNNs, ","),
+		)
 	}
 	return nil
 }
 
-func (c *ClusterThrottleController) moveThrottleAssignmentForPodsInReservation(
-	fromPod *corev1.Pod,
-	fromThrs []*schedulev1alpha1.ClusterThrottle,
-	toPod *corev1.Pod,
-	toThrs []*schedulev1alpha1.ClusterThrottle,
-) {
-	fromThrNNs := []types.NamespacedName{}
-	for _, thr := range fromThrs {
-		fromThrNNs = append(fromThrNNs, types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name})
-	}
-	toThrNNs := []types.NamespacedName{}
-	for _, thr := range toThrs {
-		toThrNNs = append(toThrNNs, types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name})
-	}
-	c.cache.moveThrottleAssignmentForPods(fromPod, fromThrNNs, toPod, toThrNNs)
-}
-
-func (c *ClusterThrottleController) UnReserveOnClusterThrottle(pod *v1.Pod, thr *schedulev1alpha1.ClusterThrottle) {
+func (c *ClusterThrottleController) ReserveOnClusterThrottle(pod *v1.Pod, thr *schedulev1alpha1.ClusterThrottle) bool {
 	nn := types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}
-	removed := c.cache.removePod(nn, pod)
-	reserved := c.cache.reservedResourceAmount(nn)
-	if removed {
-		klog.V(3).InfoS("Pod is un-reserved for affected clusterthrottle", "Pod", pod.Namespace+"/"+pod.Name, "ClusterThrottle", thr.Name, "CurrentReservedAmount", reserved)
+	added := c.cache.addPod(nn, pod)
+	reservedAmt, reservedPodNNs := c.cache.reservedResourceAmount(nn)
+	if added {
+		klog.V(3).InfoS(
+			"Pod is reserved for affected clusterthrottle",
+			"Pod", pod.Namespace+"/"+pod.Name,
+			"ClusterThrottle", thr.Name,
+			"CurrentReservedAmount", reservedAmt,
+			"CurrentReservedPods", strings.Join(reservedPodNNs.List(), ","),
+		)
 	}
+	return added
 }
 
 func (c *ClusterThrottleController) UnReserve(pod *v1.Pod) error {
@@ -284,13 +304,38 @@ func (c *ClusterThrottleController) UnReserve(pod *v1.Pod) error {
 	if err != nil {
 		return err
 	}
+	unReservedThrNNs := []string{}
 	for _, thr := range throttles {
-		c.UnReserveOnClusterThrottle(pod, thr)
+		unreserved := c.UnReserveOnClusterThrottle(pod, thr)
+		if unreserved {
+			unReservedThrNNs = append(unReservedThrNNs, thr.Namespace+"/"+thr.Name)
+		}
 	}
 	if len(throttles) > 0 {
-		klog.V(2).InfoS("Pod is un-reserved for affected clusterthrottles", "Pod", pod.Namespace+"/"+pod.Name, "#ClusterThrottles", len(throttles))
+		klog.V(2).InfoS(
+			"Pod is un-reserved for affected clusterthrottles",
+			"Pod", pod.Namespace+"/"+pod.Name,
+			"#ClusterThrottles", len(unReservedThrNNs),
+			"ClusterThrottles", strings.Join(unReservedThrNNs, ","),
+		)
 	}
 	return nil
+}
+
+func (c *ClusterThrottleController) UnReserveOnClusterThrottle(pod *v1.Pod, thr *schedulev1alpha1.ClusterThrottle) bool {
+	nn := types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}
+	removed := c.cache.removePod(nn, pod)
+	reservedAmt, reservedPodNNs := c.cache.reservedResourceAmount(nn)
+	if removed {
+		klog.V(3).InfoS(
+			"Pod is un-reserved for affected clusterthrottle",
+			"Pod", pod.Namespace+"/"+pod.Name,
+			"ClusterThrottle", thr.Name,
+			"CurrentReservedAmount", reservedAmt,
+			"CurrentReservedPods", strings.Join(reservedPodNNs.List(), ","),
+		)
+	}
+	return removed
 }
 
 func (c *ClusterThrottleController) CheckThrottled(pod *v1.Pod, isThrottledOnEqual bool) ([]schedulev1alpha1.ClusterThrottle, []schedulev1alpha1.ClusterThrottle, []schedulev1alpha1.ClusterThrottle, error) {
@@ -303,10 +348,10 @@ func (c *ClusterThrottleController) CheckThrottled(pod *v1.Pod, isThrottledOnEqu
 	insufficient := []schedulev1alpha1.ClusterThrottle{}
 	for _, thr := range throttles {
 		affected = append(affected, *thr)
-		reserved := c.cache.reservedResourceAmount(types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name})
+		reservedAmt, reservedPodNNs := c.cache.reservedResourceAmount(types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name})
 		checkStatus := thr.CheckThrottledFor(
 			pod,
-			reserved,
+			reservedAmt,
 			isThrottledOnEqual,
 		)
 		klog.V(3).InfoS("CheckThrottled result",
@@ -316,8 +361,9 @@ func (c *ClusterThrottleController) CheckThrottled(pod *v1.Pod, isThrottledOnEqu
 			"Threashold", thr.Status.CalculatedThreshold.Threshold,
 			"RequestedByPod", schedulev1alpha1.ResourceAmountOfPod(pod),
 			"UsedInClusterThrottle", thr.Status.Used,
-			"ReservedInScheduler", reserved,
-			"AmountForCheck", schedulev1alpha1.ResourceAmount{}.Add(thr.Status.Used).Add(schedulev1alpha1.ResourceAmountOfPod(pod)).Add(reserved),
+			"ReservedAmountInScheduler", reservedAmt,
+			"ReservedPodsInScheduler", strings.Join(reservedPodNNs.List(), ","),
+			"AmountForCheck", schedulev1alpha1.ResourceAmount{}.Add(thr.Status.Used).Add(schedulev1alpha1.ResourceAmountOfPod(pod)).Add(reservedAmt),
 		)
 		switch checkStatus {
 		case schedulev1alpha1.CheckThrottleStatusActive:
@@ -386,7 +432,6 @@ func (c *ClusterThrottleController) setupEventHandler() {
 			}
 			klog.V(4).InfoS("Update event", "Pod", newPod.Namespace+"/"+newPod.Name)
 
-			throttleNames := sets.NewString()
 			throttlesForOld, err := c.affectedClusterThrottles(oldPod)
 			if err != nil {
 				utilruntime.HandleError(errors.Wrapf(err, "fail to get affected clusterthrottles for pod '%s'", oldPod.Namespace+"/"+oldPod.Name))
@@ -398,20 +443,44 @@ func (c *ClusterThrottleController) setupEventHandler() {
 				return
 			}
 
-			if isScheduled(oldPod) && isScheduled(newPod) {
-				c.moveThrottleAssignmentForPodsInReservation(oldPod, throttlesForOld, newPod, throttlesForNew)
-			}
-
+			// calc symmetric difference
+			// to handle throttle assignment change
+			throttleNNs := map[types.NamespacedName]struct{}{}
+			throttleNNsForOld := map[types.NamespacedName]struct{}{}
+			throttleNNsForNew := map[types.NamespacedName]struct{}{}
+			throttleNNsCommon := map[types.NamespacedName]struct{}{}
 			for _, thr := range throttlesForOld {
-				throttleNames.Insert(types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}.String())
+				nn := types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}
+				throttleNNs[nn] = struct{}{}
+				throttleNNsForOld[nn] = struct{}{}
 			}
 			for _, thr := range throttlesForNew {
-				throttleNames.Insert(types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}.String())
+				nn := types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}
+				throttleNNs[nn] = struct{}{}
+				throttleNNsForNew[nn] = struct{}{}
+			}
+			for nn := range throttleNNs {
+				_, inNew := throttleNNsForNew[nn]
+				_, inOld := throttleNNsForOld[nn]
+				if inOld && inNew {
+					throttleNNsCommon[nn] = struct{}{}
+				}
+			}
+			for nn := range throttleNNsCommon {
+				delete(throttleNNsForOld, nn)
+			}
+			for nn := range throttleNNsCommon {
+				delete(throttleNNsForNew, nn)
+			}
+			// handle throttle assignment chnage
+			if len(throttleNNsForOld) > 0 || len(throttleNNsForNew) > 0 {
+				c.cache.moveThrottleAssignmentForPods(newPod, throttleNNsForOld, throttleNNsForNew)
 			}
 
-			klog.V(4).InfoS("Reconciling ClusterThrottles", "Pod", newPod.Namespace+"/"+newPod.Name, "#ClusterThrottles", throttleNames.Len())
-			for _, key := range throttleNames.List() {
-				c.enqueueClusterThrottle(cache.ExplicitKey(key))
+			// reconcile
+			klog.V(4).InfoS("Reconciling ClusterThrottles", "Pod", newPod.Namespace+"/"+newPod.Name, "#ClusterThrottles", len(throttleNNs))
+			for nn := range throttleNNs {
+				c.enqueueClusterThrottle(cache.ExplicitKey(nn.String()))
 			}
 		},
 		DeleteFunc: func(obj interface{}) {

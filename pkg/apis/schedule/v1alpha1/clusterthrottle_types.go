@@ -32,12 +32,17 @@ func (thr ClusterThrottle) CheckThrottledFor(pod *corev1.Pod, reservedResourceAm
 		return CheckThrottleStatusActive
 	}
 
-	used := ResourceAmount{}.Add(thr.Status.Used).Add(ResourceAmountOfPod(pod)).Add(reservedResourceAmount)
 	threshold := thr.Spec.Threshold
 	if !thr.Status.CalculatedThreshold.CalculatedAt.Time.IsZero() {
 		threshold = thr.Status.CalculatedThreshold.Threshold
 	}
 
+	alreadyUsed := ResourceAmount{}.Add(thr.Status.Used).Add(reservedResourceAmount)
+	if threshold.IsThrottled(alreadyUsed, isThrottledOnEqual).IsThrottledFor(pod) {
+		return CheckThrottleStatusActive
+	}
+
+	used := ResourceAmount{}.Add(thr.Status.Used).Add(ResourceAmountOfPod(pod)).Add(reservedResourceAmount)
 	if threshold.IsThrottled(used, isThrottledOnEqual).IsThrottledFor(pod) {
 		return CheckThrottleStatusInsufficient
 	}
