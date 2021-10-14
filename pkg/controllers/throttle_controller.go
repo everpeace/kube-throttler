@@ -37,7 +37,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/clock"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	corev1informer "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
@@ -47,19 +46,9 @@ import (
 )
 
 type ThrottleController struct {
-	throttlerName                       string
-	targetSchedulerName                 string
-	reconcileTemporaryThresholdInterval time.Duration
-
-	metricsRecorder *ThrottleMetricsRecorder
-
-	scheduleClientset scheduleclientset.Clientset
-	podInformer       corev1informer.PodInformer
-	throttleInformer  scheduleinformer.ThrottleInformer
-	cache             *reservedResourceAmounts
-
-	clock     clock.Clock
-	workqueue workqueue.RateLimitingInterface
+	ControllerBase
+	metricsRecorder  *ThrottleMetricsRecorder
+	throttleInformer scheduleinformer.ThrottleInformer
 }
 
 func NewThrottleController(
@@ -70,18 +59,24 @@ func NewThrottleController(
 	podInformer corev1informer.PodInformer,
 	clock clock.Clock,
 ) *ThrottleController {
+	controllerName := "ThrottleController"
 	c := &ThrottleController{
-		throttlerName:                       throttlerName,
-		targetSchedulerName:                 targetSchedulerName,
-		reconcileTemporaryThresholdInterval: reconcileTemporaryThresholdInterval,
-		metricsRecorder:                     NewThrottleMetricsRecorder(),
-		scheduleClientset:                   scheduleClient,
-		podInformer:                         podInformer,
-		throttleInformer:                    throttleInformer,
-		cache:                               newReservedResourceAmounts(),
-		clock:                               clock,
-		workqueue:                           workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "ThrottleController"),
+		ControllerBase: ControllerBase{
+			name:                                controllerName,
+			targetKind:                          "Throttle",
+			throttlerName:                       throttlerName,
+			targetSchedulerName:                 targetSchedulerName,
+			reconcileTemporaryThresholdInterval: reconcileTemporaryThresholdInterval,
+			scheduleClientset:                   scheduleClient,
+			podInformer:                         podInformer,
+			cache:                               newReservedResourceAmounts(),
+			clock:                               clock,
+			workqueue:                           workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), controllerName),
+		},
+		metricsRecorder:  NewThrottleMetricsRecorder(),
+		throttleInformer: throttleInformer,
 	}
+	c.reconcileFunc = c.reconcile
 	c.setupEventHandler()
 	return c
 }
@@ -175,7 +170,7 @@ func (c *ThrottleController) reconcile(key string) error {
 	}
 	if nextOverrideHappensIn != nil {
 		klog.V(3).InfoS("Reconciling after duration", "Throttle", thr.Namespace+"/"+thr.Name, "After", nextOverrideHappensIn)
-		c.enqueueThrottleAfter(thr, *nextOverrideHappensIn)
+		c.enqueueAfter(thr, *nextOverrideHappensIn)
 	}
 
 	return nil
@@ -362,7 +357,7 @@ func (c *ThrottleController) setupEventHandler() {
 				return
 			}
 			klog.V(4).InfoS("Add event", "Throttle", thr.Namespace+"/"+thr.Name)
-			c.enqueueThrottle(thr)
+			c.enqueue(thr)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			thr := newObj.(*v1alpha1.Throttle)
@@ -370,7 +365,7 @@ func (c *ThrottleController) setupEventHandler() {
 				return
 			}
 			klog.V(4).InfoS("Update event", "Throttle", thr.Namespace+"/"+thr.Name)
-			c.enqueueThrottle(thr)
+			c.enqueue(thr)
 		},
 		DeleteFunc: func(obj interface{}) {
 			thr := obj.(*v1alpha1.Throttle)
@@ -378,7 +373,7 @@ func (c *ThrottleController) setupEventHandler() {
 				return
 			}
 			klog.V(4).InfoS("Add event", "Throttle", thr.Namespace+"/"+thr.Name)
-			c.enqueueThrottle(thr)
+			c.enqueue(thr)
 		},
 	})
 
@@ -398,7 +393,7 @@ func (c *ThrottleController) setupEventHandler() {
 
 			klog.V(4).InfoS("Reconciling Throttles", "Pod", pod.Namespace+"/"+pod.Name, "#Throttles", len(throttles))
 			for _, thr := range throttles {
-				c.enqueueThrottle(thr)
+				c.enqueue(thr)
 			}
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
@@ -457,7 +452,7 @@ func (c *ThrottleController) setupEventHandler() {
 			// reconcile
 			klog.V(4).InfoS("Reconciling Throttles", "Pod", newPod.Namespace+"/"+newPod.Name, "Throttles", strings.Join(throttleNames.List(), ","))
 			for _, key := range throttleNames.List() {
-				c.enqueueThrottle(cache.ExplicitKey(key))
+				c.enqueue(cache.ExplicitKey(key))
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
@@ -481,87 +476,8 @@ func (c *ThrottleController) setupEventHandler() {
 
 			klog.V(4).InfoS("Reconciling Throttles", "Pod", pod.Namespace+"/"+pod.Name, "#Throttles", len(throttles))
 			for _, thr := range throttles {
-				c.enqueueThrottle(thr)
+				c.enqueue(thr)
 			}
 		},
 	})
-}
-
-func (c *ThrottleController) Start(threadiness int, stopCh <-chan struct{}) error {
-	klog.InfoS("Starting ThrottleController", "name", c.throttlerName)
-	if ok := cache.WaitForCacheSync(
-		stopCh,
-		c.throttleInformer.Informer().HasSynced,
-		c.podInformer.Informer().HasSynced,
-	); !ok {
-		return errors.Errorf("failed to wait for caches to sync")
-	}
-	klog.InfoS("Informer caches are synced")
-
-	// Launch  workers to process Foo resources
-	for i := 0; i < threadiness; i++ {
-		go wait.Until(c.runWorker, time.Second, stopCh)
-	}
-
-	klog.InfoS("Started ThrottleController workers", "threadiness", threadiness)
-	return nil
-}
-
-func (c *ThrottleController) enqueueThrottleAfter(obj interface{}, duration time.Duration) {
-	var key string
-	var err error
-	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
-		utilruntime.HandleError(err)
-		return
-	}
-	c.workqueue.AddAfter(key, duration)
-}
-
-func (c *ThrottleController) enqueueThrottle(obj interface{}) {
-	var key string
-	var err error
-	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
-		utilruntime.HandleError(err)
-		return
-	}
-	c.workqueue.Add(key)
-}
-func (c *ThrottleController) runWorker() {
-	for c.processNextWorkItem() {
-	}
-}
-
-func (c *ThrottleController) processNextWorkItem() bool {
-	obj, shutdown := c.workqueue.Get()
-
-	if shutdown {
-		return false
-	}
-
-	err := func(obj interface{}) error {
-		defer c.workqueue.Done(obj)
-		var key string
-		var ok bool
-
-		if key, ok = obj.(string); !ok {
-			c.workqueue.Forget(obj)
-			utilruntime.HandleError(fmt.Errorf("expected string in workqueue but got %#v", obj))
-			return nil
-		}
-		if err := c.reconcile(key); err != nil {
-			c.workqueue.AddRateLimited(key)
-			return fmt.Errorf("error reconciling '%s': %s, requeuing", key, err.Error())
-		}
-		// get queued again until another change happens.
-		c.workqueue.Forget(obj)
-		klog.InfoS("Successfully reconciled", "Throttle", key)
-		return nil
-	}(obj)
-
-	if err != nil {
-		utilruntime.HandleError(err)
-		return true
-	}
-
-	return true
 }
