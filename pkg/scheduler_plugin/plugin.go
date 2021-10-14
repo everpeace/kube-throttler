@@ -109,7 +109,24 @@ func NewPlugin(configuration runtime.Object, fh framework.Handle) (framework.Plu
 	)
 
 	scheduleInformerFactory.Start(ctx.Done())
+	scheduleInformerFactory.WaitForCacheSync(ctx.Done())
+	syncResults := scheduleInformerFactory.WaitForCacheSync(ctx.Done())
+	for informer, ok := range syncResults {
+		if !ok {
+			return nil, errors.Errorf("failed to wait for caches to sync: informer=%v", informer)
+		}
+		klog.InfoS("Informer cache synched", "Informer", fmt.Sprintf("%v", informer))
+	}
+
 	informerFactory.Start(ctx.Done())
+	syncResults = informerFactory.WaitForCacheSync(ctx.Done())
+	for informer, ok := range syncResults {
+		if !ok {
+			return nil, errors.Errorf("failed to wait for caches to sync: informer=%v", informer)
+		}
+		klog.InfoS("Informer cache synched", "Informer", fmt.Sprintf("%v", informer))
+	}
+
 	if err := throttleController.Start(goruntime.NumCPU(), context.Background().Done()); err != nil {
 		return nil, err
 	}
