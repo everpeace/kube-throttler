@@ -59,11 +59,13 @@ func NewClusterThrottleController(
 	podInformer corev1informer.PodInformer,
 	namespaceInformer corev1informer.NamespaceInformer,
 	clock clock.Clock,
+	thrediness int,
 ) *ClusterThrottleController {
 	controllerName := "ClusterThrottleController"
 	c := &ClusterThrottleController{
 		ControllerBase: ControllerBase{
 			name:                controllerName,
+			threadiness:         thrediness,
 			targetKind:          "ClusterThrottle",
 			throttlerName:       throttlerName,
 			targetSchedulerName: targetSchedulerName,

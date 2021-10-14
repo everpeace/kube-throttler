@@ -58,11 +58,13 @@ func NewThrottleController(
 	throttleInformer scheduleinformer.ThrottleInformer,
 	podInformer corev1informer.PodInformer,
 	clock clock.Clock,
+	thrediness int,
 ) *ThrottleController {
 	controllerName := "ThrottleController"
 	c := &ThrottleController{
 		ControllerBase: ControllerBase{
 			name:                controllerName,
+			threadiness:         thrediness,
 			targetKind:          "Throttle",
 			throttlerName:       throttlerName,
 			targetSchedulerName: targetSchedulerName,

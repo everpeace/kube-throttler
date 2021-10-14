@@ -45,17 +45,19 @@ type ControllerBase struct {
 	workqueue workqueue.RateLimitingInterface
 
 	reconcileFunc func(key string) error
+
+	threadiness int
 }
 
-func (c *ControllerBase) Start(threadiness int, stopCh <-chan struct{}) error {
-	klog.InfoS(fmt.Sprintf("Starting %s", c.name), "name", c.throttlerName, "threadiness", threadiness)
+func (c *ControllerBase) Start(stopCh <-chan struct{}) error {
+	klog.InfoS(fmt.Sprintf("Starting %s", c.name), "name", c.throttlerName, "threadiness", c.threadiness)
 
 	// Launch  workers to process Foo resources
-	for i := 0; i < threadiness; i++ {
+	for i := 0; i < c.threadiness; i++ {
 		go wait.Until(c.runWorker, time.Second, stopCh)
 	}
 
-	klog.InfoS(fmt.Sprintf("Started %s workers", c.name), "name", c.throttlerName, "threadiness", threadiness)
+	klog.InfoS(fmt.Sprintf("Started %s workers", c.name), "name", c.throttlerName, "threadiness", c.threadiness)
 	return nil
 }
 

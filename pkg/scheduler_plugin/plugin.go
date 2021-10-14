@@ -23,8 +23,6 @@ import (
 	"strings"
 	"time"
 
-	goruntime "runtime"
-
 	schedulev1alpha1 "github.com/everpeace/kube-throttler/pkg/apis/schedule/v1alpha1"
 	"github.com/everpeace/kube-throttler/pkg/controllers"
 	scheduleclient "github.com/everpeace/kube-throttler/pkg/generated/clientset/versioned"
@@ -96,6 +94,7 @@ func NewPlugin(configuration runtime.Object, fh framework.Handle) (framework.Plu
 		throttleInformer,
 		podInformer,
 		clock.RealClock{},
+		kubeThrottlerArgs.ControllerThrediness,
 	)
 	clusterthrottleController := controllers.NewClusterThrottleController(
 		kubeThrottlerArgs.Name,
@@ -106,6 +105,7 @@ func NewPlugin(configuration runtime.Object, fh framework.Handle) (framework.Plu
 		podInformer,
 		namespaceInformer,
 		clock.RealClock{},
+		kubeThrottlerArgs.ControllerThrediness,
 	)
 
 	scheduleInformerFactory.Start(ctx.Done())
@@ -127,10 +127,10 @@ func NewPlugin(configuration runtime.Object, fh framework.Handle) (framework.Plu
 		klog.InfoS("Informer cache synched", "Informer", fmt.Sprintf("%v", informer))
 	}
 
-	if err := throttleController.Start(goruntime.NumCPU(), context.Background().Done()); err != nil {
+	if err := throttleController.Start(context.Background().Done()); err != nil {
 		return nil, err
 	}
-	if err := clusterthrottleController.Start(goruntime.NumCPU(), context.Background().Done()); err != nil {
+	if err := clusterthrottleController.Start(context.Background().Done()); err != nil {
 		return nil, err
 	}
 
