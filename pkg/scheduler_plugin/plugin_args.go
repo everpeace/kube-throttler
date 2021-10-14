@@ -19,6 +19,7 @@ package scheduler_plugin
 
 import (
 	"fmt"
+	goruntime "runtime"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -34,6 +35,8 @@ type KubeThrottlerPluginArgs struct {
 	KubeConifg                          string        `json:"kubeconfig"`
 	ReconcileTemporaryThresholdInterval time.Duration `json:"reconcileTemporaryThresholdInterval"`
 	TargetSchedulerName                 string        `json:"targetSchedulerName"`
+	ControllerThrediness                int           `json:"controllerThrediness"`
+	NumKeyMutex                         int           `json:"numKeyMutex"`
 }
 
 func DecodePluginArgs(configuration runtime.Object) (*KubeThrottlerPluginArgs, error) {
@@ -49,6 +52,9 @@ func DecodePluginArgs(configuration runtime.Object) (*KubeThrottlerPluginArgs, e
 	}
 	if args.ReconcileTemporaryThresholdInterval == 0 {
 		args.ReconcileTemporaryThresholdInterval = DefaultReconcileTemporaryThresholdInterval
+	}
+	if args.ControllerThrediness == 0 {
+		args.ControllerThrediness = goruntime.NumCPU()
 	}
 	return args, nil
 }

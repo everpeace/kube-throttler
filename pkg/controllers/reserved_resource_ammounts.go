@@ -34,10 +34,10 @@ type reservedResourceAmounts struct {
 	keyMutex keymutex.KeyMutex
 }
 
-func newReservedResourceAmounts() *reservedResourceAmounts {
+func newReservedResourceAmounts(n int) *reservedResourceAmounts {
 	return &reservedResourceAmounts{
 		cache:    map[types.NamespacedName]podResourceAmountMap{},
-		keyMutex: keymutex.NewHashed(0),
+		keyMutex: keymutex.NewHashed(n),
 	}
 }
 
