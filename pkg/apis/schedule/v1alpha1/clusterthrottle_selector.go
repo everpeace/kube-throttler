@@ -27,6 +27,20 @@ type ClusterThrottleSelector struct {
 	SelecterTerms []ClusterThrottleSelectorTerm `json:"selectorTerms,omitempty"`
 }
 
+func (s ClusterThrottleSelector) MatchesToNamespace(ns *corev1.Namespace) (bool, error) {
+	// OR-ed
+	for _, sel := range s.SelecterTerms {
+		match, err := sel.MatchesToNamespace(ns)
+		if err != nil {
+			return false, err
+		}
+		if match {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s ClusterThrottleSelector) MatchesToPod(pod *corev1.Pod, ns *corev1.Namespace) (bool, error) {
 	// OR-ed
 	for _, sel := range s.SelecterTerms {
@@ -46,14 +60,22 @@ type ClusterThrottleSelectorTerm struct {
 	NamespaceSelector    metav1.LabelSelector `json:"namespaceSelector"`
 }
 
-func (t ClusterThrottleSelectorTerm) MatchesToPod(pod *corev1.Pod, ns *corev1.Namespace) (bool, error) {
-	// check namespace first
+func (t ClusterThrottleSelectorTerm) MatchesToNamespace(ns *corev1.Namespace) (bool, error) {
 	nss, err := metav1.LabelSelectorAsSelector(&t.NamespaceSelector)
 	if err != nil {
 		return false, nil
 	}
-	if !nss.Matches(labels.Set(ns.Labels)) {
+	return nss.Matches(labels.Set(ns.Labels)), nil
+}
+
+func (t ClusterThrottleSelectorTerm) MatchesToPod(pod *corev1.Pod, ns *corev1.Namespace) (bool, error) {
+	// check namespace first
+	matchNs, err := t.MatchesToNamespace(ns)
+	if err != nil {
 		return false, nil
+	}
+	if !matchNs {
+		return matchNs, nil
 	}
 
 	match, err := t.ThrottleSelectorTerm.MatchesToPod(pod)

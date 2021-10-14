@@ -193,11 +193,22 @@ func (c *ClusterThrottleController) shouldCountIn(pod *corev1.Pod) bool {
 
 func (c *ClusterThrottleController) affectedPods(thr *schedulev1alpha1.ClusterThrottle) ([]*v1.Pod, []*v1.Pod, error) {
 	pods := []*corev1.Pod{}
+	nsMap := map[string]*corev1.Namespace{}
 	nss, err := c.namespaceInformer.Lister().List(labels.Everything())
 	if err != nil {
 		return nil, nil, err
 	}
+
 	for _, ns := range nss {
+		match, err := thr.Spec.Selector.MatchesToNamespace(ns)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !match {
+			continue
+		}
+
+		nsMap[ns.Name] = ns
 		podsInNs, err := c.podInformer.Lister().Pods(ns.Name).List(labels.Everything())
 		if err != nil {
 			return nil, nil, err
@@ -211,22 +222,18 @@ func (c *ClusterThrottleController) affectedPods(thr *schedulev1alpha1.ClusterTh
 		if !(c.shouldCountIn(pod)) {
 			continue
 		}
-		ns, err := c.namespaceInformer.Lister().Get(pod.Namespace)
+
+		match, err := thr.Spec.Selector.MatchesToPod(pod, nsMap[pod.Namespace])
 		if err != nil {
 			return nil, nil, err
 		}
-
-		match, err := thr.Spec.Selector.MatchesToPod(pod, ns)
-		if err != nil {
-			return nil, nil, err
+		if !match {
+			continue
 		}
-
-		if match {
-			if isNotFinished(pod) {
-				nonterminatedPods = append(nonterminatedPods, pod)
-			} else {
-				terminatedPods = append(terminatedPods, pod)
-			}
+		if isNotFinished(pod) {
+			nonterminatedPods = append(nonterminatedPods, pod)
+		} else {
+			terminatedPods = append(terminatedPods, pod)
 		}
 	}
 	return nonterminatedPods, terminatedPods, nil
