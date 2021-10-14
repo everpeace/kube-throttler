@@ -32,11 +32,10 @@ import (
 )
 
 type ControllerBase struct {
-	targetKind                          string
-	name                                string
-	throttlerName                       string
-	targetSchedulerName                 string
-	reconcileTemporaryThresholdInterval time.Duration
+	targetKind          string
+	name                string
+	throttlerName       string
+	targetSchedulerName string
 
 	scheduleClientset scheduleclientset.Clientset
 	podInformer       corev1informer.PodInformer
