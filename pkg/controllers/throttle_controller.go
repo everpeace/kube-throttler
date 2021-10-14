@@ -134,35 +134,69 @@ func (c *ThrottleController) reconcile(key string) error {
 	}
 	newStatus.Throttled = newStatus.CalculatedThreshold.Threshold.IsThrottled(newStatus.Used, true)
 
+	unreserveAffectedPods := func() (schedulev1alpha1.ResourceAmount, sets.String) {
+		// Once status is updated, affected pods is safe to un-reserve from reserved resoruce amount cache
+		// We make sure to un-reserve terminated pods too here because it misses to unreserve terminated pods
+		// when reconcile is rate-limitted
+		unreservedPods := []string{}
+		for _, p := range append(affectedNonTerminatedPods, affectedTerminatedPods...) {
+			unreserved := c.UnReserveOnThrottle(p, thr)
+			if unreserved {
+				unreservedPods = append(unreservedPods, p.Namespace+"/"+p.Name)
+			}
+		}
+		if len(unreservedPods) > 0 {
+			klog.V(2).InfoS(
+				"Pods are un-reserved for Throttle",
+				"Throttle", thr.Namespace+"/"+thr.Name,
+				"#Pods", len(unreservedPods),
+				"Pods", strings.Join(unreservedPods, ","),
+			)
+		}
+		return c.cache.reservedResourceAmount(types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name})
+	}
+
 	if !apiequality.Semantic.DeepEqual(thr.Status, *newStatus) {
-		klog.V(2).InfoS("Updating status", "Throttle", thr.Namespace+"/"+thr.Name)
 		thr.Status = *newStatus
 		c.metricsRecorder.recordThrottleMetrics(thr)
+
+		klog.V(2).InfoS("Updating status",
+			"Throttle", thr.Namespace+"/"+thr.Name,
+			"Used", thr.Status.Used,
+			"Throttled", thr.Status.Throttled,
+			"Threshold", thr.Status.CalculatedThreshold.Threshold,
+			"CalculatedAt", thr.Status.CalculatedThreshold.CalculatedAt,
+			"Message", strings.Join(thr.Status.CalculatedThreshold.Messages, ","),
+		)
+
 		if thr, err = c.scheduleClientset.ScheduleV1alpha1().Throttles(namespace).UpdateStatus(ctx, thr, metav1.UpdateOptions{}); err != nil {
 			utilruntime.HandleError(errors.Wrapf(err, "failed to update Throttle '%s' status", key))
 			return err
 		}
+
+		reservedAmt, reservedPodNNs := unreserveAffectedPods()
+		klog.V(2).InfoS("Status updated successfully",
+			"Throttle", thr.Namespace+"/"+thr.Name,
+			"Used", thr.Status.Used,
+			"Throttled", thr.Status.Throttled,
+			"CalculatedAt", thr.Status.CalculatedThreshold.CalculatedAt,
+			"Threshold", thr.Status.CalculatedThreshold.Threshold,
+			"Message", strings.Join(thr.Status.CalculatedThreshold.Messages, ","),
+			"ReservedAmountInScheduler", reservedAmt,
+			"ReservedPodsInScheduler", strings.Join(reservedPodNNs.List(), ","),
+		)
 	} else {
 		c.metricsRecorder.recordThrottleMetrics(thr)
-		klog.V(2).InfoS("No need to update status", "Throttle", thr.Namespace+"/"+thr.Name)
-	}
-
-	// Once status is updated, affected pods is safe to un-reserve from reserved resoruce amount cache
-	// We make sure to un-reserve terminated pods too here because it misses to unreserve terminated pods
-	// when reconcile is rate-limitted
-	unreservedPods := []string{}
-	for _, p := range append(affectedNonTerminatedPods, affectedTerminatedPods...) {
-		unreserved := c.UnReserveOnThrottle(p, thr)
-		if unreserved {
-			unreservedPods = append(unreservedPods, p.Namespace+"/"+p.Name)
-		}
-	}
-	if len(unreservedPods) > 0 {
-		klog.V(2).InfoS(
-			"Pods are un-reserved for Throttle",
+		reservedAmt, reservedPodNNs := unreserveAffectedPods()
+		klog.V(2).InfoS("No need to update status",
 			"Throttle", thr.Namespace+"/"+thr.Name,
-			"#Pods", len(unreservedPods),
-			"Pods", strings.Join(unreservedPods, ","),
+			"Threshold", thr.Status.CalculatedThreshold.Threshold,
+			"CalculatedAt", thr.Status.CalculatedThreshold.CalculatedAt,
+			"Message", strings.Join(thr.Status.CalculatedThreshold.Messages, ","),
+			"Used", thr.Status.Used,
+			"Throttled", thr.Status.Throttled,
+			"ReservedAmountInScheduler", reservedAmt,
+			"ReservedPodsInScheduler", strings.Join(reservedPodNNs.List(), ","),
 		)
 	}
 
@@ -406,7 +440,6 @@ func (c *ThrottleController) setupEventHandler() {
 			}
 			klog.V(4).InfoS("Update event", "Pod", newPod.Namespace+"/"+newPod.Name)
 
-			throttleNames := sets.NewString()
 			throttlesForOld, err := c.affectedThrottles(oldPod)
 			if err != nil {
 				utilruntime.HandleError(errors.Wrapf(err, "fail to get affected throttles for pod '%s'", oldPod.Namespace+"/"+oldPod.Name))
@@ -452,9 +485,9 @@ func (c *ThrottleController) setupEventHandler() {
 			}
 
 			// reconcile
-			klog.V(4).InfoS("Reconciling Throttles", "Pod", newPod.Namespace+"/"+newPod.Name, "Throttles", strings.Join(throttleNames.List(), ","))
-			for _, key := range throttleNames.List() {
-				c.enqueue(cache.ExplicitKey(key))
+			for nn := range throttleNNs {
+				klog.V(4).InfoS("Enqueue throttle for pod update", "Throttle", nn.String(), "Pod", newPod.Namespace+"/"+newPod.Name)
+				c.enqueue(cache.ExplicitKey(nn.String()))
 			}
 		},
 		DeleteFunc: func(obj interface{}) {

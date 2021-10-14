@@ -51,8 +51,9 @@ func (c *reservedResourceAmounts) addPod(nn types.NamespacedName, pod *corev1.Po
 		c.cache[nn] = podResourceAmountMap{}
 	}
 
+	added := c.cache[nn].add(pod)
 	klog.V(5).InfoS("reservedResourceAmounts.addPod", "Pod", pod.Namespace+"/"+pod.Name, "NamespacedName", nn.String(), "Cache", c.cache)
-	return c.cache[nn].add(pod)
+	return added
 }
 
 func (c *reservedResourceAmounts) removePod(nn types.NamespacedName, pod *corev1.Pod) bool {
