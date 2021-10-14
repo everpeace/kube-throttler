@@ -95,6 +95,7 @@ func NewPlugin(configuration runtime.Object, fh framework.Handle) (framework.Plu
 		podInformer,
 		clock.RealClock{},
 		kubeThrottlerArgs.ControllerThrediness,
+		kubeThrottlerArgs.NumKeyMutex,
 	)
 	clusterthrottleController := controllers.NewClusterThrottleController(
 		kubeThrottlerArgs.Name,
@@ -106,6 +107,7 @@ func NewPlugin(configuration runtime.Object, fh framework.Handle) (framework.Plu
 		namespaceInformer,
 		clock.RealClock{},
 		kubeThrottlerArgs.ControllerThrediness,
+		kubeThrottlerArgs.NumKeyMutex,
 	)
 
 	scheduleInformerFactory.Start(ctx.Done())

@@ -59,6 +59,7 @@ func NewThrottleController(
 	podInformer corev1informer.PodInformer,
 	clock clock.Clock,
 	thrediness int,
+	numKeyMutex int,
 ) *ThrottleController {
 	controllerName := "ThrottleController"
 	c := &ThrottleController{
@@ -70,7 +71,7 @@ func NewThrottleController(
 			targetSchedulerName: targetSchedulerName,
 			scheduleClientset:   scheduleClient,
 			podInformer:         podInformer,
-			cache:               newReservedResourceAmounts(),
+			cache:               newReservedResourceAmounts(numKeyMutex),
 			clock:               clock,
 			workqueue:           workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), controllerName),
 		},

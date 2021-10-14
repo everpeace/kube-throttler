@@ -60,6 +60,7 @@ func NewClusterThrottleController(
 	namespaceInformer corev1informer.NamespaceInformer,
 	clock clock.Clock,
 	thrediness int,
+	numKeyMutex int,
 ) *ClusterThrottleController {
 	controllerName := "ClusterThrottleController"
 	c := &ClusterThrottleController{
@@ -71,7 +72,7 @@ func NewClusterThrottleController(
 			targetSchedulerName: targetSchedulerName,
 			scheduleClientset:   scheduleClient,
 			podInformer:         podInformer,
-			cache:               newReservedResourceAmounts(),
+			cache:               newReservedResourceAmounts(numKeyMutex),
 			clock:               clock,
 			workqueue:           workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), controllerName),
 		},

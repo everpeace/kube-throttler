@@ -36,6 +36,7 @@ type KubeThrottlerPluginArgs struct {
 	ReconcileTemporaryThresholdInterval time.Duration `json:"reconcileTemporaryThresholdInterval"`
 	TargetSchedulerName                 string        `json:"targetSchedulerName"`
 	ControllerThrediness                int           `json:"controllerThrediness"`
+	NumKeyMutex                         int           `json:"numKeyMutex"`
 }
 
 func DecodePluginArgs(configuration runtime.Object) (*KubeThrottlerPluginArgs, error) {
