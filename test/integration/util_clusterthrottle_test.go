@@ -19,7 +19,6 @@ package integration
 
 import (
 	"context"
-	"time"
 
 	"github.com/everpeace/kube-throttler/pkg/apis/schedule/v1alpha1"
 	. "github.com/onsi/gomega"
@@ -81,6 +80,16 @@ func (w *clusterThrottleWrapper) ThresholdCpu(qty string) *clusterThrottleWrappe
 func (w *clusterThrottleWrapper) Selector(ns, podKey, podVal string) *clusterThrottleWrapper {
 	w.Spec.Selector.SelecterTerms = []v1alpha1.ClusterThrottleSelectorTerm{{
 		NamespaceSelector: metav1.LabelSelector{MatchLabels: map[string]string{`kubernetes.io/metadata.name`: ns}},
+		ThrottleSelectorTerm: v1alpha1.ThrottleSelectorTerm{
+			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{podKey: podVal}},
+		},
+	}}
+	return w
+}
+
+func (w *clusterThrottleWrapper) Selectors(nsKey, nsVal, podKey, podVal string) *clusterThrottleWrapper {
+	w.Spec.Selector.SelecterTerms = []v1alpha1.ClusterThrottleSelectorTerm{{
+		NamespaceSelector: metav1.LabelSelector{MatchLabels: map[string]string{nsKey: nsVal}},
 		ThrottleSelectorTerm: v1alpha1.ThrottleSelectorTerm{
 			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{podKey: podVal}},
 		},
@@ -179,11 +188,19 @@ func MustDeleteAllClusterThrottlesInNs(ctx context.Context) {
 		thrs, err := kthrCli.ScheduleV1alpha1().ClusterThrottles().List(ctx, metav1.ListOptions{LabelSelector: labels.Everything().String()})
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(thrs.Items).Should(HaveLen(0))
-	}, 10*time.Second).Should(Succeed())
+	}).Should(Succeed())
 }
 
 func MustCreateClusterThrottle(ctx context.Context, thr *v1alpha1.ClusterThrottle) *v1alpha1.ClusterThrottle {
 	created, err := kthrCli.ScheduleV1alpha1().ClusterThrottles().Create(ctx, thr, metav1.CreateOptions{})
 	Expect(err).NotTo(HaveOccurred())
 	return created
+}
+
+func AsyncClusterThrottles(thrs []*v1alpha1.ClusterThrottle, f func(*v1alpha1.ClusterThrottle) func(g Gomega)) func(g Gomega) {
+	return func(g Gomega) {
+		for _, thr := range thrs {
+			f(thr)(g)
+		}
+	}
 }

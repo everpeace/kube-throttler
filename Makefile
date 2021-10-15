@@ -153,13 +153,14 @@ dev-run-debug: dev-scheduler-conf
 #
 # E2E test
 #
-export E2E_GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT=10s
+export E2E_GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT=1m
 export E2E_GOMEGA_DEFAULT_CONSISTENTLY_DURATION=2s
 E2E_PAUSE_IMAGE=k8s.gcr.io/pause:3.2
 E2E_KIND_KUBECNOFIG = $(DEV_TOOL_PREFIX)/.kubeconfig
+E2E_KIND_CONF=./hack/e2e/kind.conf
 e2e-setup:
 	$(KIND) get clusters | grep kube-throttler-e2e 2>&1 >/dev/null \
-	  || $(KIND) create cluster --name=kube-throttler-e2e --kubeconfig=$(E2E_KIND_KUBECNOFIG)
+	  || $(KIND) create cluster --name=kube-throttler-e2e --kubeconfig=$(E2E_KIND_KUBECNOFIG) --config=$(E2E_KIND_CONF)
 	kubectl --kubeconfig=$(E2E_KIND_KUBECNOFIG) apply -f ./deploy/crd.yaml
 	docker pull $(E2E_PAUSE_IMAGE)
 	$(KIND) load docker-image $(E2E_PAUSE_IMAGE) --name=kube-throttler-e2e

@@ -20,7 +20,6 @@ package integration
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/everpeace/kube-throttler/pkg/apis/schedule/v1alpha1"
 	. "github.com/onsi/gomega"
@@ -38,6 +37,11 @@ func MakePod(namespace, name string, cpuReq string) *st.PodWrapper {
 		"cpu": resource.MustParse(cpuReq),
 	}
 	w.Spec.TerminationGracePeriodSeconds = pointer.Int64Ptr(0)
+	w.Spec.Tolerations = []corev1.Toleration{{
+		Key:      "node-role.kubernetes.io/master",
+		Operator: corev1.TolerationOpExists,
+		Effect:   corev1.TaintEffectNoSchedule,
+	}}
 	return w
 }
 
@@ -58,7 +62,7 @@ func MustDeleteAllPodsInNs(ctx context.Context, ns string) {
 		pods, err := k8sCli.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: labels.Everything().String()})
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(pods.Items).Should(HaveLen(0))
-	}, 10*time.Second).Should(Succeed())
+	}).Should(Succeed())
 }
 
 func MustPodFailedScheduling(ctx context.Context, ns, n string, throttleStatus v1alpha1.CheckThrottleStatus) func(g Gomega) {
