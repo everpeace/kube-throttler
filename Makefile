@@ -48,7 +48,7 @@ build-only:
 
 .PHONY: test
 test: fmt lint
-	go test  ./...
+	go test  $$(go list ./... | grep -v "test/integration")
 
 .PHONY: clean
 clean:
@@ -97,11 +97,14 @@ GOLANGCI_LINT = $(DEV_TOOL_PREFIX)/bin/golangci-lint
 GO_LICENSER = $(DEV_TOOL_PREFIX)/bin/go-licenser 
 GO_IMPORTS = $(DEV_TOOL_PREFIX)/bin/goimports
 CONTROLLER_GEN = $(DEV_TOOL_PREFIX)/bin/controller-gen
+KIND = $(DEV_TOOL_PREFIX)/bin/kind
+KIND_KUBECNOFIG = $(DEV_TOOL_PREFIX)/.kubeconfig
 setup:
 	$(call go-get-tool,$(GO_IMPORTS),golang.org/x/tools/cmd/goimports)
 	$(call go-get-tool,$(GO_LICENSER),github.com/elastic/go-licenser)
 	$(call go-get-tool,$(GIT_SEMV),github.com/linyows/git-semv/cmd/git-semv)
 	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.6.1)
+	$(call go-get-tool,$(KIND),sigs.k8s.io/kind)
 	cd $(shell go env GOPATH) && \
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(DEV_TOOL_PREFIX)/bin v1.27.0
 
@@ -146,3 +149,35 @@ dev-run-debug: dev-scheduler-conf
 		--config=./hack/dev/scheduler-config.yaml \
 		--kubeconfig=$(HOME)/.kube/config \
 		--v=3
+
+#
+# E2E test
+#
+export E2E_GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT=10s
+export E2E_GOMEGA_DEFAULT_CONSISTENTLY_DURATION=2s
+E2E_PAUSE_IMAGE=k8s.gcr.io/pause:3.2
+E2E_KIND_KUBECNOFIG = $(DEV_TOOL_PREFIX)/.kubeconfig
+e2e-setup:
+	$(KIND) get clusters | grep kube-throttler-e2e 2>&1 >/dev/null \
+	  || $(KIND) create cluster --name=kube-throttler-e2e --kubeconfig=$(E2E_KIND_KUBECNOFIG)
+	kubectl --kubeconfig=$(E2E_KIND_KUBECNOFIG) apply -f ./deploy/crd.yaml
+	docker pull $(E2E_PAUSE_IMAGE)
+	$(KIND) load docker-image $(E2E_PAUSE_IMAGE) --name=kube-throttler-e2e
+	kubectl --kubeconfig=$(E2E_KIND_KUBECNOFIG) wait --timeout=120s \
+		--for=condition=Ready -n kube-system \
+		node/kube-throttler-e2e-control-plane \
+		pod/kube-apiserver-kube-throttler-e2e-control-plane
+
+e2e-teardown:
+	$(KIND) get clusters | grep kube-throttler-e2e 2>&1 >/dev/null \
+	  && $(KIND) delete cluster --name=kube-throttler-e2e
+
+e2e: fmt lint e2e-setup
+	GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT=$(E2E_GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT) \
+	GOMEGA_DEFAULT_CONSISTENTLY_DURATION=$(E2E_GOMEGA_DEFAULT_CONSISTENTLY_DURATION) \
+	go test ./test/integration --kubeconfig=$(E2E_KIND_KUBECNOFIG) --pause-image=$(E2E_PAUSE_IMAGE)
+
+e2e-debug: fmt lint e2e-setup
+	GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT=$(E2E_GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT) \
+	GOMEGA_DEFAULT_CONSISTENTLY_DURATION=$(E2E_GOMEGA_DEFAULT_CONSISTENTLY_DURATION) \
+	dlv test --headless --listen=0.0.0.0:2345 --api-version=2 --log ./test/integration -- --kubeconfig=$(E2E_KIND_KUBECNOFIG)

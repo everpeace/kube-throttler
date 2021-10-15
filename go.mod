@@ -3,9 +3,10 @@ module github.com/everpeace/kube-throttler
 go 1.16
 
 require (
+	github.com/MakeNowJust/heredoc v1.0.0
 	github.com/google/go-cmp v0.5.5
-	github.com/onsi/ginkgo v1.16.4
-	github.com/onsi/gomega v1.14.0
+	github.com/onsi/ginkgo v1.16.5
+	github.com/onsi/gomega v1.16.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.7.1
 	github.com/spf13/cobra v1.2.1

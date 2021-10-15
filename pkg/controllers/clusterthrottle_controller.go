@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/clock"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	corev1informer "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
@@ -136,35 +137,69 @@ func (c *ClusterThrottleController) reconcile(key string) error {
 	}
 	newStatus.Throttled = newStatus.CalculatedThreshold.Threshold.IsThrottled(newStatus.Used, true)
 
+	unreserveAffectedPods := func() (schedulev1alpha1.ResourceAmount, sets.String) {
+		// Once status is updated, affected pods is safe to un-reserve from reserved resoruce amount cache
+		// We make sure to un-reserve terminated pods too here because it misses to unreserve terminated pods
+		// when reconcile is rate-limitted
+		unreservedPods := []string{}
+		for _, p := range append(affectedNonTerminatedPods, affectedTerminatedPods...) {
+			unreserved := c.UnReserveOnClusterThrottle(p, thr)
+			if unreserved {
+				unreservedPods = append(unreservedPods, p.Namespace+"/"+p.Name)
+			}
+		}
+		if len(unreservedPods) > 0 {
+			klog.V(2).InfoS(
+				"Pods are un-reserved for ClusterThrottle",
+				"ClusterThrottle", thr.Namespace+"/"+thr.Name,
+				"#Pods", len(unreservedPods),
+				"Pods", strings.Join(unreservedPods, ","),
+			)
+		}
+		return c.cache.reservedResourceAmount(types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name})
+	}
+
 	if !apiequality.Semantic.DeepEqual(thr.Status, *newStatus) {
-		klog.V(2).InfoS("Updating status", "ClusterThrottle", thr.Namespace+"/"+thr.Name)
 		thr.Status = *newStatus
 		c.metricsRecorder.recordClusterThrottleMetrics(thr)
+
+		klog.V(2).InfoS("Updating status",
+			"ClusterThrottle", thr.Namespace+"/"+thr.Name,
+			"Used", thr.Status.Used,
+			"Throttled", thr.Status.Throttled,
+			"Threshold", thr.Status.CalculatedThreshold.Threshold,
+			"CalculatedAt", thr.Status.CalculatedThreshold.CalculatedAt,
+			"Message", strings.Join(thr.Status.CalculatedThreshold.Messages, ","),
+		)
+
 		if thr, err = c.scheduleClientset.ScheduleV1alpha1().ClusterThrottles().UpdateStatus(ctx, thr, metav1.UpdateOptions{}); err != nil {
 			utilruntime.HandleError(errors.Wrapf(err, "failed to update ClusterThrottle '%s' status", key))
 			return err
 		}
+
+		reservedAmt, reservedPodNNs := unreserveAffectedPods()
+		klog.V(2).InfoS("Status updated successfully",
+			"ClusterThrottle", thr.Namespace+"/"+thr.Name,
+			"Used", thr.Status.Used,
+			"Throttled", thr.Status.Throttled,
+			"CalculatedAt", thr.Status.CalculatedThreshold.CalculatedAt,
+			"Threshold", thr.Status.CalculatedThreshold.Threshold,
+			"Message", strings.Join(thr.Status.CalculatedThreshold.Messages, ","),
+			"ReservedAmountInScheduler", reservedAmt,
+			"ReservedPodsInScheduler", strings.Join(reservedPodNNs.List(), ","),
+		)
 	} else {
 		c.metricsRecorder.recordClusterThrottleMetrics(thr)
-		klog.V(2).InfoS("No need to update status", "ClusterThrottle", thr.Namespace+"/"+thr.Name)
-	}
-
-	// Once status is updated, affected pods is safe to un-reserve from reserved resoruce amount cache
-	// We make sure to un-reserve terminated pods too here because it misses to unreserve terminated pods
-	// when reconcile is rate-limitted
-	unreservedPods := []string{}
-	for _, p := range append(affectedNonTerminatedPods, affectedTerminatedPods...) {
-		unreserved := c.UnReserveOnClusterThrottle(p, thr)
-		if unreserved {
-			unreservedPods = append(unreservedPods, p.Namespace+"/"+p.Name)
-		}
-	}
-	if len(unreservedPods) > 0 {
-		klog.V(2).InfoS(
-			"Pods are un-reserved for ClusterThrottle",
+		reservedAmt, reservedPodNNs := unreserveAffectedPods()
+		klog.V(2).InfoS("No need to update status",
 			"ClusterThrottle", thr.Namespace+"/"+thr.Name,
-			"#Pods", len(unreservedPods),
-			"Pods", strings.Join(unreservedPods, ","),
+			"Threshold", thr.Status.CalculatedThreshold.Threshold,
+			"CalculatedAt", thr.Status.CalculatedThreshold.CalculatedAt,
+			"Message", strings.Join(thr.Status.CalculatedThreshold.Messages, ","),
+			"Used", thr.Status.Used,
+			"Throttled", thr.Status.Throttled,
+			"ReservedAmountInScheduler", reservedAmt,
+			"ReservedPodsInScheduler", strings.Join(reservedPodNNs.List(), ","),
 		)
 	}
 
@@ -404,7 +439,7 @@ func (c *ClusterThrottleController) setupEventHandler() {
 			if !c.isResponsibleFor(thr) {
 				return
 			}
-			klog.V(4).InfoS("Add event", "ClusterThrottle", thr.Name)
+			klog.V(4).InfoS("Delete event", "ClusterThrottle", thr.Name)
 			c.enqueue(thr)
 		},
 	})
@@ -482,8 +517,8 @@ func (c *ClusterThrottleController) setupEventHandler() {
 			}
 
 			// reconcile
-			klog.V(4).InfoS("Reconciling ClusterThrottles", "Pod", newPod.Namespace+"/"+newPod.Name, "#ClusterThrottles", len(throttleNNs))
 			for nn := range throttleNNs {
+				klog.V(4).InfoS("Enqueue clusterthrottle for pod update", "Throttle", nn.String(), "Pod", newPod.Namespace+"/"+newPod.Name)
 				c.enqueue(cache.ExplicitKey(nn.String()))
 			}
 		},

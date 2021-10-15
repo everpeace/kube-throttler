@@ -34,6 +34,8 @@ jobs:
       run: make
     - name: Test
       run: make test
+    - name: E2E Test
+      run: make e2e
     - name: Validate .goreleaser.yml
       uses: goreleaser/goreleaser-action@v2
       with:
