@@ -27,14 +27,11 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/onsi/gomega/format"
-
 	. "github.com/MakeNowJust/heredoc/dot"
 	kthrclient "github.com/everpeace/kube-throttler/pkg/generated/clientset/versioned"
 	kubethrottler "github.com/everpeace/kube-throttler/pkg/scheduler_plugin"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/component-base/logs"
 	scheduler "k8s.io/kubernetes/cmd/kube-scheduler/app"
 	"k8s.io/kubernetes/cmd/kube-scheduler/app/options"
 
@@ -65,7 +62,6 @@ func init() {
 }
 
 func TestIntegration(t *testing.T) {
-	format.MaxLength = 0
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Integration Suite")
 }
@@ -119,6 +115,8 @@ func mustStartKubeThrottler() {
 			      name: %s
 			      targetSchedulerName: %s
 			      kubeconfig: %s
+			      controllerThrediness: 64
+			      numKeyMutex: 128
 		`,
 			kubeConfigPath,                               // clientConnection.kubeconfig
 			SchedulerName,                                // prifiles[0].scedulerName
@@ -141,5 +139,5 @@ func mustStartKubeThrottler() {
 	go func() {
 		_ = scheduler.Run(schedulerContext, cc, sched)
 	}()
-	logs.GlogSetter("4")
+	// logs.GlogSetter("2")
 }
