@@ -94,7 +94,7 @@ func (c *ThrottleController) reconcile(key string) error {
 		return err
 	}
 
-	thr, err := c.scheduleClientset.ScheduleV1alpha1().Throttles(namespace).Get(ctx, name, metav1.GetOptions{})
+	thr, err := c.throttleInformer.Lister().Throttles(namespace).Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
