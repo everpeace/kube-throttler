@@ -19,6 +19,7 @@ package controllers
 
 import (
 	"strings"
+	"sync"
 
 	schedulev1alpha1 "github.com/everpeace/kube-throttler/pkg/apis/schedule/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -29,9 +30,14 @@ import (
 )
 
 type reservedResourceAmounts struct {
-	// [Cluster]Throttle Name -> podResourceAmountMap
-	cache    map[types.NamespacedName]podResourceAmountMap
+	// This protects concurrent accesses to cache itself
+	sync.RWMutex
+
+	// This protects concurrent accesses on the same (Cluster)Throttle's key
 	keyMutex keymutex.KeyMutex
+
+	// [Cluster]Throttle Name -> podResourceAmountMap
+	cache map[types.NamespacedName]podResourceAmountMap
 }
 
 func newReservedResourceAmounts(n int) *reservedResourceAmounts {
@@ -41,18 +47,25 @@ func newReservedResourceAmounts(n int) *reservedResourceAmounts {
 	}
 }
 
+func (c *reservedResourceAmounts) getPodResourceAmountMap(nn types.NamespacedName) podResourceAmountMap {
+	c.Lock()
+	defer c.Unlock()
+	if _, ok := c.cache[nn]; !ok {
+		c.cache[nn] = podResourceAmountMap{}
+	}
+	return c.cache[nn]
+}
+
 func (c *reservedResourceAmounts) addPod(nn types.NamespacedName, pod *corev1.Pod) bool {
 	c.keyMutex.LockKey(nn.String())
 	defer func() {
 		_ = c.keyMutex.UnlockKey(nn.String())
 	}()
 
-	if _, ok := c.cache[nn]; !ok {
-		c.cache[nn] = podResourceAmountMap{}
-	}
+	m := c.getPodResourceAmountMap(nn)
+	added := m.add(pod)
 
-	added := c.cache[nn].add(pod)
-	klog.V(5).InfoS("reservedResourceAmounts.addPod", "Pod", pod.Namespace+"/"+pod.Name, "NamespacedName", nn.String(), "Cache", c.cache)
+	klog.V(5).InfoS("reservedResourceAmounts.addPod", "Pod", pod.Namespace+"/"+pod.Name, "NamespacedName", nn.String(), "Cache", m)
 	return added
 }
 
@@ -62,12 +75,10 @@ func (c *reservedResourceAmounts) removePod(nn types.NamespacedName, pod *corev1
 		_ = c.keyMutex.UnlockKey(nn.String())
 	}()
 
-	if _, ok := c.cache[nn]; !ok {
-		c.cache[nn] = podResourceAmountMap{}
-	}
+	m := c.getPodResourceAmountMap(nn)
+	removed := m.remove(pod)
 
-	removed := c.cache[nn].remove(pod)
-	klog.V(5).InfoS("reservedResourceAmounts.removePod", "Pod", pod.Namespace+"/"+pod.Name, "NamespacedName", nn.String(), "Removed", removed, "Cache", c.cache)
+	klog.V(5).InfoS("reservedResourceAmounts.removePod", "Pod", pod.Namespace+"/"+pod.Name, "NamespacedName", nn.String(), "Removed", removed, "Cache", m)
 	return removed
 }
 
