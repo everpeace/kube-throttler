@@ -48,6 +48,13 @@ func newReservedResourceAmounts(n int) *reservedResourceAmounts {
 }
 
 func (c *reservedResourceAmounts) getPodResourceAmountMap(nn types.NamespacedName) podResourceAmountMap {
+	c.RLock()
+	if m, ok := c.cache[nn]; ok {
+		c.RUnlock()
+		return m
+	}
+	c.RUnlock()
+
 	c.Lock()
 	defer c.Unlock()
 	if _, ok := c.cache[nn]; !ok {
