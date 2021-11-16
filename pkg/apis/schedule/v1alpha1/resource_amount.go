@@ -26,8 +26,10 @@ import (
 )
 
 type ResourceAmount struct {
-	ResourceCounts   *ResourceCounts     `json:"resourceCounts,omitempty"`
-	ResourceRequests corev1.ResourceList `json:"resourceRequests"`
+	ResourceCounts *ResourceCounts `json:"resourceCounts,omitempty"`
+
+	//+nullable
+	ResourceRequests corev1.ResourceList `json:"resourceRequests,omitempty"`
 }
 
 type ResourceCounts struct {
@@ -35,8 +37,10 @@ type ResourceCounts struct {
 }
 
 type IsResourceAmountThrottled struct {
-	ResourceCounts   IsResourceCountThrottled     `json:"resourceCounts"`
-	ResourceRequests map[corev1.ResourceName]bool `json:"resourceRequests"`
+	ResourceCounts IsResourceCountThrottled `json:"resourceCounts"`
+
+	//+nullable
+	ResourceRequests map[corev1.ResourceName]bool `json:"resourceRequests,omitempty"`
 }
 
 func (t IsResourceAmountThrottled) IsThrottledFor(pod *corev1.Pod) bool {
