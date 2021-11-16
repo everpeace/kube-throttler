@@ -133,6 +133,7 @@ spec:
                             x-kubernetes-int-or-string: true
                           description: ResourceList is a set of (resource name, quantity)
                             pairs.
+                          nullable: true
                           type: object
                       type: object
                   required:
@@ -155,6 +156,7 @@ spec:
                       x-kubernetes-int-or-string: true
                     description: ResourceList is a set of (resource name, quantity)
                       pairs.
+                    nullable: true
                     type: object
                 type: object
               throttlerName:
@@ -190,6 +192,7 @@ spec:
                           x-kubernetes-int-or-string: true
                         description: ResourceList is a set of (resource name, quantity)
                           pairs.
+                        nullable: true
                         type: object
                     type: object
                 required:
@@ -206,6 +209,7 @@ spec:
                   resourceRequests:
                     additionalProperties:
                       type: boolean
+                    nullable: true
                     type: object
                 type: object
               used:
@@ -224,6 +228,7 @@ spec:
                       x-kubernetes-int-or-string: true
                     description: ResourceList is a set of (resource name, quantity)
                       pairs.
+                    nullable: true
                     type: object
                 type: object
             type: object
@@ -421,6 +426,7 @@ spec:
                             x-kubernetes-int-or-string: true
                           description: ResourceList is a set of (resource name, quantity)
                             pairs.
+                          nullable: true
                           type: object
                       type: object
                   required:
@@ -443,6 +449,7 @@ spec:
                       x-kubernetes-int-or-string: true
                     description: ResourceList is a set of (resource name, quantity)
                       pairs.
+                    nullable: true
                     type: object
                 type: object
               throttlerName:
@@ -478,6 +485,7 @@ spec:
                           x-kubernetes-int-or-string: true
                         description: ResourceList is a set of (resource name, quantity)
                           pairs.
+                        nullable: true
                         type: object
                     type: object
                 required:
@@ -494,6 +502,7 @@ spec:
                   resourceRequests:
                     additionalProperties:
                       type: boolean
+                    nullable: true
                     type: object
                 type: object
               used:
@@ -512,6 +521,7 @@ spec:
                       x-kubernetes-int-or-string: true
                     description: ResourceList is a set of (resource name, quantity)
                       pairs.
+                    nullable: true
                     type: object
                 type: object
             type: object
