@@ -119,19 +119,24 @@ type ThrottleStatus struct {
 type CheckThrottleStatus string
 
 var (
-	CheckThrottleStatusNotThrottled CheckThrottleStatus = "not-throttled"
-	CheckThrottleStatusActive       CheckThrottleStatus = "active"
-	CheckThrottleStatusInsufficient CheckThrottleStatus = "insufficient"
+	CheckThrottleStatusNotThrottled                CheckThrottleStatus = "not-throttled"
+	CheckThrottleStatusActive                      CheckThrottleStatus = "active"
+	CheckThrottleStatusInsufficient                CheckThrottleStatus = "insufficient"
+	CheckThrottleStatusPodRequestsExceedsThreshold CheckThrottleStatus = "pod-requests-exceeds-threshold"
 )
 
 func (thr Throttle) CheckThrottledFor(pod *corev1.Pod, reservedResourceAmount ResourceAmount, isThrottledOnEqual bool) CheckThrottleStatus {
-	if thr.Status.Throttled.IsThrottledFor(pod) {
-		return CheckThrottleStatusActive
-	}
-
 	threshold := thr.Spec.Threshold
 	if !thr.Status.CalculatedThreshold.CalculatedAt.Time.IsZero() {
 		threshold = thr.Status.CalculatedThreshold.Threshold
+	}
+
+	if threshold.IsThrottled(ResourceAmountOfPod(pod), false).IsThrottledFor(pod) {
+		return CheckThrottleStatusPodRequestsExceedsThreshold
+	}
+
+	if thr.Status.Throttled.IsThrottledFor(pod) {
+		return CheckThrottleStatusActive
 	}
 
 	alreadyUsed := ResourceAmount{}.Add(thr.Status.Used).Add(reservedResourceAmount)

@@ -150,29 +150,55 @@ func (pl *KubeThrottler) PreFilter(
 	state *framework.CycleState,
 	pod *v1.Pod,
 ) *framework.Status {
-	thrActive, thrInsufficient, thrAffected, err := pl.throttleCtr.CheckThrottled(pod, false)
+	thrActive, thrInsufficient, thrPodRequestsExceeds, thrAffected, err := pl.throttleCtr.CheckThrottled(pod, false)
 	if err != nil {
 		return framework.NewStatus(framework.Error, err.Error())
 	}
 	klog.V(2).InfoS("PreFilter: throttle check result",
 		"Pod", pod.Namespace+"/"+pod.Name,
-		"#ActiveThrottles", len(thrActive), "#InsufficientThrottles", len(thrInsufficient), "#AffectedThrottles", len(thrAffected),
+		"#ActiveThrottles", len(thrActive),
+		"#InsufficientThrottles", len(thrInsufficient),
+		"#PodRequestsExceedsThresholdThrottles", len(thrPodRequestsExceeds),
+		"#AffectedThrottles", len(thrAffected),
 	)
 
-	clthrActive, clthrInsufficient, clThrAffected, err := pl.clusterThrottleCtr.CheckThrottled(pod, false)
+	clthrActive, clthrInsufficient, clthrPodRequestsExceeds, clThrAffected, err := pl.clusterThrottleCtr.CheckThrottled(pod, false)
 	if err != nil {
 		return framework.NewStatus(framework.Error, err.Error())
 	}
 	klog.V(2).InfoS("PreFilter: clusterthrottle check result",
 		"Pod", pod.Namespace+"/"+pod.Name,
-		"#ActiveClusterThrottles", len(clthrActive), "#InsufficientClusterThrottles", len(clthrInsufficient), "#AffectedClusterThrottles", len(clThrAffected),
+		"#ActiveClusterThrottles", len(clthrActive),
+		"#InsufficientClusterThrottles", len(clthrInsufficient),
+		"#PodRequestsExceedsThresholdClusterThrottles", len(clthrPodRequestsExceeds),
+		"#AffectedClusterThrottles", len(clThrAffected),
 	)
 
-	if len(thrActive)+len(thrInsufficient)+len(clthrActive)+len(clthrInsufficient) == 0 {
+	if len(thrActive)+len(thrInsufficient)+len(thrPodRequestsExceeds)+
+		len(clthrActive)+len(clthrInsufficient)+len(clthrPodRequestsExceeds) == 0 {
 		return framework.NewStatus(framework.Success)
 	}
 
 	reasons := []string{}
+	if len(clthrPodRequestsExceeds) > 0 {
+		reasons = append(reasons, fmt.Sprintf("clusterthrottle[%s]=%s", schedulev1alpha1.CheckThrottleStatusPodRequestsExceedsThreshold, strings.Join(clusterThrottleNames(clthrPodRequestsExceeds), ",")))
+	}
+	if len(thrPodRequestsExceeds) > 0 {
+		reasons = append(reasons, fmt.Sprintf("throttle[%s]=%s", schedulev1alpha1.CheckThrottleStatusPodRequestsExceedsThreshold, strings.Join(throttleNames(thrPodRequestsExceeds), ",")))
+	}
+	if len(clthrPodRequestsExceeds)+len(thrPodRequestsExceeds) > 0 {
+		pl.fh.EventRecorder().Eventf(
+			pod, nil,
+			v1.EventTypeWarning,
+			"ResourceRequestsExceedsThrottleThreshold",
+			pl.Name(),
+			"It won't be scheduled unless decreasing resource requests or increasing ClusterThrottle/Throttle threshold because its resource requests exceeds their thresholds: %s",
+			strings.Join(
+				append(clusterThrottleNames(clthrPodRequestsExceeds), throttleNames(thrPodRequestsExceeds)...),
+				",",
+			),
+		)
+	}
 	if len(clthrActive) > 0 {
 		reasons = append(reasons, fmt.Sprintf("clusterthrottle[%s]=%s", schedulev1alpha1.CheckThrottleStatusActive, strings.Join(clusterThrottleNames(clthrActive), ",")))
 	}

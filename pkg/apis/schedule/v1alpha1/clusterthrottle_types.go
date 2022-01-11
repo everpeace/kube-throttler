@@ -28,13 +28,17 @@ type ClusterThrottleSpec struct {
 }
 
 func (thr ClusterThrottle) CheckThrottledFor(pod *corev1.Pod, reservedResourceAmount ResourceAmount, isThrottledOnEqual bool) CheckThrottleStatus {
-	if thr.Status.Throttled.IsThrottledFor(pod) {
-		return CheckThrottleStatusActive
-	}
-
 	threshold := thr.Spec.Threshold
 	if !thr.Status.CalculatedThreshold.CalculatedAt.Time.IsZero() {
 		threshold = thr.Status.CalculatedThreshold.Threshold
+	}
+
+	if threshold.IsThrottled(ResourceAmountOfPod(pod), false).IsThrottledFor(pod) {
+		return CheckThrottleStatusPodRequestsExceedsThreshold
+	}
+
+	if thr.Status.Throttled.IsThrottledFor(pod) {
+		return CheckThrottleStatusActive
 	}
 
 	alreadyUsed := ResourceAmount{}.Add(thr.Status.Used).Add(reservedResourceAmount)

@@ -78,6 +78,19 @@ func MustPodFailedScheduling(ctx context.Context, ns, n string, throttleStatus v
 	}
 }
 
+func MustPodResourceRequestsExceedsThrottleThreshold(ctx context.Context, ns, n, throttleNamespacedName string) func(g Gomega) {
+	return func(g Gomega) {
+		events, err := k8sCli.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
+			FieldSelector: fmt.Sprintf("involvedObject.name=%s,reason=ResourceRequestsExceedsThrottleThreshold", n),
+		})
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(events.Items).Should(ContainElement(WithTransform(
+			func(e corev1.Event) string { return e.Message },
+			ContainSubstring(throttleNamespacedName),
+		)))
+	}
+}
+
 func PodIsScheduled(ctx context.Context, namespace, name string) func(g Gomega) {
 	return func(g Gomega) {
 		got, err := k8sCli.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})

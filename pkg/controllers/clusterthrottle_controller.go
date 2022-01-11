@@ -377,14 +377,24 @@ func (c *ClusterThrottleController) UnReserveOnClusterThrottle(pod *v1.Pod, thr 
 	return removed
 }
 
-func (c *ClusterThrottleController) CheckThrottled(pod *v1.Pod, isThrottledOnEqual bool) ([]schedulev1alpha1.ClusterThrottle, []schedulev1alpha1.ClusterThrottle, []schedulev1alpha1.ClusterThrottle, error) {
+func (c *ClusterThrottleController) CheckThrottled(
+	pod *v1.Pod,
+	isThrottledOnEqual bool,
+) (
+	[]schedulev1alpha1.ClusterThrottle,
+	[]schedulev1alpha1.ClusterThrottle,
+	[]schedulev1alpha1.ClusterThrottle,
+	[]schedulev1alpha1.ClusterThrottle,
+	error,
+) {
 	throttles, err := c.affectedClusterThrottles(pod)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	affected := []schedulev1alpha1.ClusterThrottle{}
 	alreadyThrottled := []schedulev1alpha1.ClusterThrottle{}
 	insufficient := []schedulev1alpha1.ClusterThrottle{}
+	podRequestsExceedsThreshold := []schedulev1alpha1.ClusterThrottle{}
 	for _, thr := range throttles {
 		affected = append(affected, *thr)
 		reservedAmt, reservedPodNNs := c.cache.reservedResourceAmount(types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name})
@@ -409,9 +419,11 @@ func (c *ClusterThrottleController) CheckThrottled(pod *v1.Pod, isThrottledOnEqu
 			alreadyThrottled = append(alreadyThrottled, *thr)
 		case schedulev1alpha1.CheckThrottleStatusInsufficient:
 			insufficient = append(insufficient, *thr)
+		case schedulev1alpha1.CheckThrottleStatusPodRequestsExceedsThreshold:
+			podRequestsExceedsThreshold = append(podRequestsExceedsThreshold, *thr)
 		}
 	}
-	return alreadyThrottled, insufficient, affected, nil
+	return alreadyThrottled, insufficient, podRequestsExceedsThreshold, affected, nil
 }
 
 func (c *ClusterThrottleController) setupEventHandler() {
