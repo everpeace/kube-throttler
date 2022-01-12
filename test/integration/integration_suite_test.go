@@ -67,6 +67,7 @@ func TestIntegration(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	flag.Parse()
 	Expect(kubeConfigPath).NotTo(BeEmpty())
 	Expect(pauseImage).NotTo(BeEmpty())
 	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)

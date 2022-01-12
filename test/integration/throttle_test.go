@@ -143,6 +143,25 @@ var _ = Describe("Throttle Test", func() {
 				Consistently(PodIsNotScheduled(ctx, DefaultNs, pod2.Name)).Should(Succeed())
 			})
 		})
+		Context("ResourceRequest (pod-requests-exceeds-threshold)", func() {
+			var pod *corev1.Pod
+			BeforeEach(func() {
+				pod = MustCreatePod(ctx, MakePod(DefaultNs, "pod", "1.1").Label(throttleKey, throttleName).Obj())
+			})
+			It("should not schedule pod", func() {
+				Eventually(AsyncAll(
+					WakeupBackoffPod(ctx),
+					ThrottleHasStatus(
+						ctx, DefaultNs, thr.Name,
+						ThOpts.WithCalculatedThreshold(thr.Spec.Threshold),
+						ThOpts.WithPodThrottled(false), ThOpts.WithCpuThrottled(false),
+					),
+					MustPodFailedScheduling(ctx, DefaultNs, pod.Name, v1alpha1.CheckThrottleStatusPodRequestsExceedsThreshold),
+					MustPodResourceRequestsExceedsThrottleThreshold(ctx, DefaultNs, pod.Name, thr.Namespace+"/"+thr.Name),
+				)).Should(Succeed())
+				Consistently(PodIsNotScheduled(ctx, DefaultNs, pod.Name)).Should(Succeed())
+			})
+		})
 	})
 
 	When("Many pods are created at once", func() {
