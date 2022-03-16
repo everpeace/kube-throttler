@@ -106,7 +106,7 @@ setup:
 	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.6.1)
 	$(call go-get-tool,$(KIND),sigs.k8s.io/kind)
 	cd $(shell go env GOPATH) && \
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(DEV_TOOL_PREFIX)/bin v1.27.0
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(DEV_TOOL_PREFIX)/bin v1.43.0
 
 # go-get-tool will 'go get' any package $2 and install it to $1.
 define go-get-tool
