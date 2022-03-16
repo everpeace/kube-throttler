@@ -90,7 +90,7 @@ func mustStartKubeThrottler() {
 	schedulerConfigPath = schedulerConfigFile.Name()
 	_, err = schedulerConfigFile.Write([]byte(
 		Df(`
-			apiVersion: kubescheduler.config.k8s.io/v1beta1
+			apiVersion: kubescheduler.config.k8s.io/v1beta3
 			kind: KubeSchedulerConfiguration
 			leaderElection:
 			  leaderElect: false
@@ -102,14 +102,9 @@ func mustStartKubeThrottler() {
 			profiles:
 			- schedulerName: %s
 			  plugins:
-			    preFilter:
+			    multiPoint:
 			      enabled:
 			      - name: kube-throttler
-			        weight: 1
-			    reserve:
-			      enabled:
-			      - name: kube-throttler
-			        weight: 1
 			  pluginConfig:
 			  - name: kube-throttler
 			    args:
@@ -127,8 +122,7 @@ func mustStartKubeThrottler() {
 	Expect(err).NotTo(HaveOccurred())
 	schedulerConfigFile.Close()
 
-	opts, err := options.NewOptions()
-	Expect(err).NotTo(HaveOccurred())
+	opts := options.NewOptions()
 	opts.ConfigFile = schedulerConfigPath
 	cc, sched, err := scheduler.Setup(
 		schedulerContext,
