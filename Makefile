@@ -158,9 +158,13 @@ export E2E_GOMEGA_DEFAULT_CONSISTENTLY_DURATION=2s
 E2E_PAUSE_IMAGE=k8s.gcr.io/pause:3.2
 E2E_KIND_KUBECNOFIG = $(DEV_TOOL_PREFIX)/.kubeconfig
 E2E_KIND_CONF=./hack/e2e/kind.conf
+E2E_NODE_IMAGE ?= kindest/node:v1.23.4
 e2e-setup:
 	$(KIND) get clusters | grep kube-throttler-e2e 2>&1 >/dev/null \
-	  || $(KIND) create cluster --name=kube-throttler-e2e --kubeconfig=$(E2E_KIND_KUBECNOFIG) --config=$(E2E_KIND_CONF)
+	  || $(KIND) create cluster --name=kube-throttler-e2e \
+	       --kubeconfig=$(E2E_KIND_KUBECNOFIG) \
+		   --config=$(E2E_KIND_CONF) \
+		   --image=$(E2E_NODE_IMAGE)
 	kubectl --kubeconfig=$(E2E_KIND_KUBECNOFIG) apply -f ./deploy/crd.yaml
 	docker pull $(E2E_PAUSE_IMAGE)
 	$(KIND) load docker-image $(E2E_PAUSE_IMAGE) --name=kube-throttler-e2e
