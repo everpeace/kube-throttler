@@ -99,7 +99,7 @@ GO_IMPORTS = $(DEV_TOOL_PREFIX)/bin/goimports
 CONTROLLER_GEN = $(DEV_TOOL_PREFIX)/bin/controller-gen
 CODEGEN_PKG=$(CODEGEN_PKG_NAME)@$(CODEGEN_PKG_VERSION)
 CODEGEN_PKG_NAME=k8s.io/code-generator
-CODEGEN_PKG_VERSION=v0.23.4
+CODEGEN_PKG_VERSION=v0.24.3
 KIND = $(DEV_TOOL_PREFIX)/bin/kind
 KIND_KUBECNOFIG = $(DEV_TOOL_PREFIX)/.kubeconfig
 setup:
@@ -153,7 +153,7 @@ export E2E_GOMEGA_DEFAULT_CONSISTENTLY_DURATION=2s
 E2E_PAUSE_IMAGE=k8s.gcr.io/pause:3.2
 E2E_KIND_KUBECNOFIG = $(DEV_TOOL_PREFIX)/.kubeconfig
 E2E_KIND_CONF=./hack/e2e/kind.conf
-E2E_NODE_IMAGE ?= kindest/node:v1.23.4
+E2E_NODE_IMAGE ?= kindest/node:v1.24.3
 e2e-setup:
 	$(KIND) get clusters | grep kube-throttler-e2e 2>&1 >/dev/null \
 	  || $(KIND) create cluster --name=kube-throttler-e2e \

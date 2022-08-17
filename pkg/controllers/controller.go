@@ -22,13 +22,13 @@ import (
 	"time"
 
 	scheduleclientset "github.com/everpeace/kube-throttler/pkg/generated/clientset/versioned"
-	"k8s.io/apimachinery/pkg/util/clock"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	corev1informer "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 )
 
 type ControllerBase struct {
