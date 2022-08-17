@@ -31,13 +31,13 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/clock"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/utils/clock"
 )
 
 const (
@@ -150,10 +150,10 @@ func (pl *KubeThrottler) PreFilter(
 	ctx context.Context,
 	state *framework.CycleState,
 	pod *v1.Pod,
-) *framework.Status {
+) (*framework.PreFilterResult, *framework.Status) {
 	thrActive, thrInsufficient, thrPodRequestsExceeds, thrAffected, err := pl.throttleCtr.CheckThrottled(pod, false)
 	if err != nil {
-		return framework.NewStatus(framework.Error, err.Error())
+		return nil, framework.NewStatus(framework.Error, err.Error())
 	}
 	klog.V(2).InfoS("PreFilter: throttle check result",
 		"Pod", pod.Namespace+"/"+pod.Name,
@@ -165,7 +165,7 @@ func (pl *KubeThrottler) PreFilter(
 
 	clthrActive, clthrInsufficient, clthrPodRequestsExceeds, clThrAffected, err := pl.clusterThrottleCtr.CheckThrottled(pod, false)
 	if err != nil {
-		return framework.NewStatus(framework.Error, err.Error())
+		return nil, framework.NewStatus(framework.Error, err.Error())
 	}
 	klog.V(2).InfoS("PreFilter: clusterthrottle check result",
 		"Pod", pod.Namespace+"/"+pod.Name,
@@ -177,7 +177,7 @@ func (pl *KubeThrottler) PreFilter(
 
 	if len(thrActive)+len(thrInsufficient)+len(thrPodRequestsExceeds)+
 		len(clthrActive)+len(clthrInsufficient)+len(clthrPodRequestsExceeds) == 0 {
-		return framework.NewStatus(framework.Success)
+		return nil, framework.NewStatus(framework.Success)
 	}
 
 	reasons := []string{}
@@ -212,7 +212,7 @@ func (pl *KubeThrottler) PreFilter(
 	if len(thrInsufficient) != 0 {
 		reasons = append(reasons, fmt.Sprintf("throttle[%s]=%s", schedulev1alpha1.CheckThrottleStatusInsufficient, strings.Join(throttleNames(thrInsufficient), ",")))
 	}
-	return framework.NewStatus(framework.UnschedulableAndUnresolvable, reasons...)
+	return nil, framework.NewStatus(framework.UnschedulableAndUnresolvable, reasons...)
 }
 
 func (pl *KubeThrottler) Reserve(

@@ -75,7 +75,10 @@ func (c *Clientset) Tracker() testing.ObjectTracker {
 	return c.tracker
 }
 
-var _ clientset.Interface = &Clientset{}
+var (
+	_ clientset.Interface = &Clientset{}
+	_ testing.FakeClient  = &Clientset{}
+)
 
 // ScheduleV1alpha1 retrieves the ScheduleV1alpha1Client
 func (c *Clientset) ScheduleV1alpha1() schedulev1alpha1.ScheduleV1alpha1Interface {
