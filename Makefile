@@ -35,7 +35,7 @@ generate: codegen crd
 
 .PHONY: codegen
 codegen:
-	./hack/update-codegen.sh
+	CODEGEN_PKG=$(CODEGEN_PKG) ./hack/update-codegen.sh
 	$(GO_LICENSER) --licensor "Shingo Omura"
 
 .PHONY: crd
@@ -97,29 +97,24 @@ GOLANGCI_LINT = $(DEV_TOOL_PREFIX)/bin/golangci-lint
 GO_LICENSER = $(DEV_TOOL_PREFIX)/bin/go-licenser 
 GO_IMPORTS = $(DEV_TOOL_PREFIX)/bin/goimports
 CONTROLLER_GEN = $(DEV_TOOL_PREFIX)/bin/controller-gen
+CODEGEN_PKG=$(CODEGEN_PKG_NAME)@$(CODEGEN_PKG_VERSION)
+CODEGEN_PKG_NAME=k8s.io/code-generator
+CODEGEN_PKG_VERSION=v0.23.4
 KIND = $(DEV_TOOL_PREFIX)/bin/kind
 KIND_KUBECNOFIG = $(DEV_TOOL_PREFIX)/.kubeconfig
 setup:
-	$(call go-get-tool,$(GO_IMPORTS),golang.org/x/tools/cmd/goimports)
-	$(call go-get-tool,$(GO_LICENSER),github.com/elastic/go-licenser)
-	$(call go-get-tool,$(GIT_SEMV),github.com/linyows/git-semv/cmd/git-semv)
-	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.6.1)
-	$(call go-get-tool,$(KIND),sigs.k8s.io/kind)
-	cd $(shell go env GOPATH) && \
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(DEV_TOOL_PREFIX)/bin v1.43.0
-
-# go-get-tool will 'go get' any package $2 and install it to $1.
-define go-get-tool
-@[ -f $(1) ] || { \
-set -e ;\
-TMP_DIR=$$(mktemp -d) ;\
-cd $$TMP_DIR ;\
-go mod init tmp ;\
-echo "Downloading $(2)" ;\
-GOBIN=$(DEV_TOOL_PREFIX)/bin go get $(2) ;\
-rm -rf $$TMP_DIR ;\
-}
-endef
+	GOBIN=$(DEV_TOOL_PREFIX)/bin go install golang.org/x/tools/cmd/goimports@latest
+	GOBIN=$(DEV_TOOL_PREFIX)/bin go install github.com/elastic/go-licenser@latest
+	GOBIN=$(DEV_TOOL_PREFIX)/bin go install github.com/linyows/git-semv/cmd/git-semv@latest
+	GOBIN=$(DEV_TOOL_PREFIX)/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.6.1
+	go mod download $(CODEGEN_PKG)
+	GOBIN=$(DEV_TOOL_PREFIX)/bin go install $(CODEGEN_PKG_NAME)/cmd/defaulter-gen@$(CODEGEN_PKG_VERSION)
+	GOBIN=$(DEV_TOOL_PREFIX)/bin go install $(CODEGEN_PKG_NAME)/cmd/client-gen@$(CODEGEN_PKG_VERSION)
+	GOBIN=$(DEV_TOOL_PREFIX)/bin go install $(CODEGEN_PKG_NAME)/cmd/lister-gen@$(CODEGEN_PKG_VERSION)
+	GOBIN=$(DEV_TOOL_PREFIX)/bin go install $(CODEGEN_PKG_NAME)/cmd/informer-gen@$(CODEGEN_PKG_VERSION)
+	GOBIN=$(DEV_TOOL_PREFIX)/bin go install $(CODEGEN_PKG_NAME)/cmd/deepcopy-gen@$(CODEGEN_PKG_VERSION)
+	GOBIN=$(DEV_TOOL_PREFIX)/bin go install sigs.k8s.io/kind@latest
+	GOBIN=$(DEV_TOOL_PREFIX)/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.46.2
 
 #
 # local development

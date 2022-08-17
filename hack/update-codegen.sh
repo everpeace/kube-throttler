@@ -3,13 +3,15 @@
 set -o errexit
 set -o nounset
 set -o pipefail
+set -x
 
 SCRIPT_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
-CODEGEN_PKG=${CODEGEN_PKG:-$(ls -d -1 $(go env GOPATH)/pkg/mod/k8s.io/code-generator* 2>/dev/null || echo ../code-generator)}
 
-echo ${CODEGEN_PKG}
+CODEGEN_PKG_PATH=$(go list -m -f '{{.Dir}}' "${CODEGEN_PKG}")
 
-bash "${CODEGEN_PKG}"/generate-groups.sh \
+echo ${CODEGEN_PKG_PATH}
+
+GOBIN="$(greadlink -f ${SCRIPT_ROOT})/.dev/bin" bash "${CODEGEN_PKG_PATH}"/generate-groups.sh \
   all \
   github.com/everpeace/kube-throttler/pkg/generated \
   github.com/everpeace/kube-throttler/pkg/apis \

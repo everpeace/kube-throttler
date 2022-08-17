@@ -118,7 +118,7 @@ func (c *FakeThrottles) UpdateStatus(ctx context.Context, throttle *v1alpha1.Thr
 // Delete takes name of the throttle and deletes it. Returns an error if one occurs.
 func (c *FakeThrottles) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(testing.NewDeleteAction(throttlesResource, c.ns, name), &v1alpha1.Throttle{})
+		Invokes(testing.NewDeleteActionWithOptions(throttlesResource, c.ns, name, opts), &v1alpha1.Throttle{})
 
 	return err
 }

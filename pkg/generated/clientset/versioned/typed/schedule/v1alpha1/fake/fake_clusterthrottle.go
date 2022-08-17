@@ -111,7 +111,7 @@ func (c *FakeClusterThrottles) UpdateStatus(ctx context.Context, clusterThrottle
 // Delete takes name of the clusterThrottle and deletes it. Returns an error if one occurs.
 func (c *FakeClusterThrottles) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(testing.NewRootDeleteAction(clusterthrottlesResource, name), &v1alpha1.ClusterThrottle{})
+		Invokes(testing.NewRootDeleteActionWithOptions(clusterthrottlesResource, name, opts), &v1alpha1.ClusterThrottle{})
 	return err
 }
 
