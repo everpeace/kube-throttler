@@ -40,7 +40,7 @@ import (
 )
 
 const (
-	SchedulerName = "kube-throttler-e2e"
+	SchedulerName = "kube-throttler-integration"
 	ThrottlerName = "kube-throttler"
 	DefaultNs     = "default"
 )
