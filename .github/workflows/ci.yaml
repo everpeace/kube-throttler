@@ -11,63 +11,64 @@ on:
 
 jobs:
 
-  test:
-    name: Test
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
+    - name: Check out
+      uses: actions/checkout@v3
     - name: Set up Go 1.x
       uses: actions/setup-go@v2
       with:
         go-version: ~1.18
-      id: go
-    - name: Check out code into the Go module directory
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: 0
-    - name: Get dependencies
-      run: go mod download
     - name: Get Devtools
       run: make setup
     - name: Lint
       run : make lint
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out
+      uses: actions/checkout@v3
+    - name: Set up Go 1.x
+      uses: actions/setup-go@v2
+      with:
+        go-version: ~1.18
+    - name: Get Devtools
+      run: make setup
     - name: Build
-      run: make
+      run: make build-only
     - name: Test
       run: make test
-    - name: E2E Test
-      run: make e2e
-    - name: Validate .goreleaser.yml
+
+  integration:
+    name: Integration Test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out
+      uses: actions/checkout@v3
+    - name: Set up Go 1.x
+      uses: actions/setup-go@v2
+      with:
+        go-version: ~1.18
+    - name: Get Devtools
+      run: make setup
+    - name: integration test
+      run: make integration
+
+  validate-goreleaser:
+    name: Validate GoReleaser
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out
+      uses: actions/checkout@v3
+    - name: Set up Go 1.x
+      uses: actions/setup-go@v2
+      with:
+        go-version: ~1.18
+    - name: Validate GoReleaser
       uses: goreleaser/goreleaser-action@v2
       with:
-        version: latest
         args: release --snapshot --skip-publish --rm-dist --debug
-
-  image_build:
-    name: Image Build
-    runs-on: ubuntu-latest
-    env:
-      DOCKER_BUILDKIT: 1
-      IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/
-    steps:
-      - name: Set up Go 1.x
-        uses: actions/setup-go@v2
-        with:
-          go-version: ~1.18
-        id: go
-      - name: Check out
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-      - name: Get Devtools
-        run: make setup
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v1
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build Docker image
-        run: make build-image
-      - name: Push Docker image
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        run: make push-image

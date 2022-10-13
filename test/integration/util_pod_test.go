@@ -125,11 +125,11 @@ func WakeupBackoffPod(ctx context.Context) func(g Gomega) {
 		if node.Status.Allocatable == nil {
 			node.Status.Allocatable = corev1.ResourceList{}
 		}
-		if q, ok := node.Status.Allocatable["kube-throttler-e2e-test-dummy"]; ok {
+		if q, ok := node.Status.Allocatable["kube-throttler-integration-test-dummy"]; ok {
 			q.Add(resource.MustParse("1"))
-			node.Status.Allocatable["kube-throttler-e2e-test-dummy"] = q
+			node.Status.Allocatable["kube-throttler-integration-test-dummy"] = q
 		} else {
-			node.Status.Allocatable["kube-throttler-e2e-test-dummy"] = resource.MustParse("0")
+			node.Status.Allocatable["kube-throttler-integration-test-dummy"] = resource.MustParse("0")
 		}
 		_, err = k8sCli.CoreV1().Nodes().UpdateStatus(ctx, node, metav1.UpdateOptions{})
 		g.Expect(err).NotTo(HaveOccurred())

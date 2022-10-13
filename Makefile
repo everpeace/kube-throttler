@@ -4,11 +4,10 @@ export CGO_ENABLED=0
 
 # project metadta
 NAME         := kube-throttler
-VERSION      ?= $(if $(RELEASE),$(shell $(GIT_SEMV) now),$(shell $(GIT_SEMV) patch -p))
 REVISION     := $(shell git rev-parse --short HEAD)
 IMAGE_PREFIX ?= 
-IMAGE_TAG    ?= $(if $(RELEASE),$(VERSION),$(VERSION)-$(REVISION))
-LDFLAGS      := -ldflags="-s -w -X \"github.com/everpeace/kube-throttler/cmd.Version=$(VERSION)\" -X \"github.com/everpeace/kube-throttler/cmd.Revision=$(REVISION)\" -extldflags \"-static\""
+IMAGE_TAG    ?= $(REVISION)
+LDFLAGS      := -ldflags="-s -w -X github.com/everpeace/kube-throttler/cmd.Revision=$(REVISION) -extldflags \"-static\""
 OUTDIR       ?= ./dist
 
 .DEFAULT_GOAL := build
@@ -59,40 +58,15 @@ build-image:
 	docker build -t $(shell make -e docker-tag) --build-arg RELEASE=$(RELEASE) --build-arg VERSION=$(VERSION) --target runtime .
 	docker tag $(shell make -e docker-tag) $(IMAGE_PREFIX)$(NAME):$(VERSION)  # without revision
 
-.PHONY: push-image
-push-image:
-	docker push $(shell make -e docker-tag)
-	# without revision
-	docker push $(IMAGE_PREFIX)$(NAME):$(VERSION)
-	# latest (update only in release)
-	$(if $(RELEASE), docker tag $(shell make -e docker-tag) $(IMAGE_PREFIX)$(NAME):latest)
-	$(if $(RELEASE), docker push $(IMAGE_PREFIX)$(NAME):latest)  
-
 .PHONY: docker-tag
 docker-tag:
 	@echo $(IMAGE_PREFIX)$(NAME):$(IMAGE_TAG)
-
-#
-# Release
-#
-guard-%:
-	@ if [ "${${*}}" = "" ]; then \
-    echo "Environment variable $* is not set"; \
-		exit 1; \
-	fi
-.PHONY: release
-release: guard-RELEASE guard-RELEASE_TAG
-	git diff --quiet HEAD || (echo "your current branch is dirty" && exit 1)
-	git tag $(RELEASE_TAG) $(REVISION)
-	git push origin $(RELEASE_TAG)
-
 
 #
 # dev setup
 #
 .PHONY: setup
 DEV_TOOL_PREFIX = $(shell pwd)/.dev
-GIT_SEMV = $(DEV_TOOL_PREFIX)/bin/git-semv
 GOLANGCI_LINT = $(DEV_TOOL_PREFIX)/bin/golangci-lint
 GO_LICENSER = $(DEV_TOOL_PREFIX)/bin/go-licenser 
 GO_IMPORTS = $(DEV_TOOL_PREFIX)/bin/goimports
@@ -105,7 +79,6 @@ KIND_KUBECNOFIG = $(DEV_TOOL_PREFIX)/.kubeconfig
 setup:
 	GOBIN=$(DEV_TOOL_PREFIX)/bin go install golang.org/x/tools/cmd/goimports@latest
 	GOBIN=$(DEV_TOOL_PREFIX)/bin go install github.com/elastic/go-licenser@latest
-	GOBIN=$(DEV_TOOL_PREFIX)/bin go install github.com/linyows/git-semv/cmd/git-semv@latest
 	GOBIN=$(DEV_TOOL_PREFIX)/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.6.1
 	go mod download $(CODEGEN_PKG)
 	GOBIN=$(DEV_TOOL_PREFIX)/bin go install $(CODEGEN_PKG_NAME)/cmd/defaulter-gen@$(CODEGEN_PKG_VERSION)
@@ -146,38 +119,38 @@ dev-run-debug: dev-scheduler-conf
 		--v=3
 
 #
-# E2E test
+# INTEGRATION test
 #
-export E2E_GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT=180s
-export E2E_GOMEGA_DEFAULT_CONSISTENTLY_DURATION=2s
-E2E_PAUSE_IMAGE=k8s.gcr.io/pause:3.2
-E2E_KIND_KUBECNOFIG = $(DEV_TOOL_PREFIX)/.kubeconfig
-E2E_KIND_CONF=./hack/e2e/kind.conf
-E2E_NODE_IMAGE ?= kindest/node:v1.24.3
-e2e-setup:
-	$(KIND) get clusters | grep kube-throttler-e2e 2>&1 >/dev/null \
-	  || $(KIND) create cluster --name=kube-throttler-e2e \
-	       --kubeconfig=$(E2E_KIND_KUBECNOFIG) \
-		   --config=$(E2E_KIND_CONF) \
-		   --image=$(E2E_NODE_IMAGE)
-	kubectl --kubeconfig=$(E2E_KIND_KUBECNOFIG) apply -f ./deploy/crd.yaml
-	docker pull $(E2E_PAUSE_IMAGE)
-	$(KIND) load docker-image $(E2E_PAUSE_IMAGE) --name=kube-throttler-e2e
-	kubectl --kubeconfig=$(E2E_KIND_KUBECNOFIG) wait --timeout=120s \
+export INTEGRATION_GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT=180s
+export INTEGRATION_GOMEGA_DEFAULT_CONSISTENTLY_DURATION=2s
+INTEGRATION_PAUSE_IMAGE=k8s.gcr.io/pause:3.2
+INTEGRATION_KIND_KUBECNOFIG = $(DEV_TOOL_PREFIX)/.kubeconfig
+INTEGRATION_KIND_CONF=./hack/integration/kind.conf
+INTEGRATION_NODE_IMAGE ?= kindest/node:v1.24.3
+integration-setup:
+	$(KIND) get clusters | grep kube-throttler-integration 2>&1 >/dev/null \
+	  || $(KIND) create cluster --name=kube-throttler-integration \
+	       --kubeconfig=$(INTEGRATION_KIND_KUBECNOFIG) \
+		   --config=$(INTEGRATION_KIND_CONF) \
+		   --image=$(INTEGRATION_NODE_IMAGE)
+	kubectl --kubeconfig=$(INTEGRATION_KIND_KUBECNOFIG) apply -f ./deploy/crd.yaml
+	docker pull $(INTEGRATION_PAUSE_IMAGE)
+	$(KIND) load docker-image $(INTEGRATION_PAUSE_IMAGE) --name=kube-throttler-integration
+	kubectl --kubeconfig=$(INTEGRATION_KIND_KUBECNOFIG) wait --timeout=120s \
 		--for=condition=Ready -n kube-system \
-		node/kube-throttler-e2e-control-plane \
-		pod/kube-apiserver-kube-throttler-e2e-control-plane
+		node/kube-throttler-integration-control-plane \
+		pod/kube-apiserver-kube-throttler-integration-control-plane
 
-e2e-teardown:
-	$(KIND) get clusters | grep kube-throttler-e2e 2>&1 >/dev/null \
-	  && $(KIND) delete cluster --name=kube-throttler-e2e
+integration-teardown:
+	$(KIND) get clusters | grep kube-throttler-integration 2>&1 >/dev/null \
+	  && $(KIND) delete cluster --name=kube-throttler-integration
 
-e2e: fmt lint e2e-setup
-	GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT=$(E2E_GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT) \
-	GOMEGA_DEFAULT_CONSISTENTLY_DURATION=$(E2E_GOMEGA_DEFAULT_CONSISTENTLY_DURATION) \
-	go test ./test/integration --kubeconfig=$(E2E_KIND_KUBECNOFIG) --pause-image=$(E2E_PAUSE_IMAGE)
+integration: integration-setup
+	GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT=$(INTEGRATION_GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT) \
+	GOMEGA_DEFAULT_CONSISTENTLY_DURATION=$(INTEGRATION_GOMEGA_DEFAULT_CONSISTENTLY_DURATION) \
+	go test ./test/integration --kubeconfig=$(INTEGRATION_KIND_KUBECNOFIG) --pause-image=$(INTEGRATION_PAUSE_IMAGE)
 
-e2e-debug: fmt lint e2e-setup
-	GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT=$(E2E_GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT) \
-	GOMEGA_DEFAULT_CONSISTENTLY_DURATION=$(E2E_GOMEGA_DEFAULT_CONSISTENTLY_DURATION) \
-	dlv test --headless --listen=0.0.0.0:2345 --api-version=2 --log ./test/integration -- --kubeconfig=$(E2E_KIND_KUBECNOFIG) --pause-image=$(E2E_PAUSE_IMAGE)
+integration-debug: integration-setup
+	GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT=$(INTEGRATION_GOMEGA_DEFAULT_EVENTUALLY_TIMEOUT) \
+	GOMEGA_DEFAULT_CONSISTENTLY_DURATION=$(INTEGRATION_GOMEGA_DEFAULT_CONSISTENTLY_DURATION) \
+	dlv test --headless --listen=0.0.0.0:2345 --api-version=2 --log ./test/integration -- --kubeconfig=$(INTEGRATION_KIND_KUBECNOFIG) --pause-image=$(INTEGRATION_PAUSE_IMAGE)
