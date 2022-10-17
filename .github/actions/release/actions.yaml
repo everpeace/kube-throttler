@@ -20,7 +20,12 @@ runs:
       ref: refs/tags/${{ inputs.tag }}
     env:
       GITHUB_TOKEN: ${{ inputs.token }}
-
+  - name: Login to GitHub Container Registry
+    uses: docker/login-action@v2
+    with:
+      registry: ghcr.io
+      username: everpeace
+      password: ${{ inputs.token }}
   - name: Set up Go 1.x
     uses: actions/setup-go@v2
     with:
