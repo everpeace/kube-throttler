@@ -110,14 +110,14 @@ func (c *reservedResourceAmounts) moveThrottleAssignmentForPods(pod *corev1.Pod,
 	}
 }
 
-func (c *reservedResourceAmounts) reservedResourceAmount(nn types.NamespacedName) (schedulev1alpha1.ResourceAmount, sets.String) {
+func (c *reservedResourceAmounts) reservedResourceAmount(nn types.NamespacedName) (schedulev1alpha1.ResourceAmount, sets.Set[string]) {
 	c.keyMutex.LockKey(nn.String())
 	defer func() {
 		_ = c.keyMutex.UnlockKey(nn.String())
 	}()
 	podResourceAmountMap, ok := c.cache[nn]
 	if !ok {
-		return schedulev1alpha1.ResourceAmount{}, sets.NewString()
+		return schedulev1alpha1.ResourceAmount{}, sets.New[string]()
 	}
 	return podResourceAmountMap.totalResoruceAmount()
 }
@@ -142,9 +142,9 @@ func (c podResourceAmountMap) removeByNN(nn types.NamespacedName) bool {
 	return ok
 }
 
-func (c podResourceAmountMap) totalResoruceAmount() (schedulev1alpha1.ResourceAmount, sets.String) {
+func (c podResourceAmountMap) totalResoruceAmount() (schedulev1alpha1.ResourceAmount, sets.Set[string]) {
 	result := schedulev1alpha1.ResourceAmount{}
-	nns := sets.NewString()
+	nns := sets.New[string]()
 	for nn, ra := range c {
 		nns.Insert(nn.String())
 		result = result.Add(ra)

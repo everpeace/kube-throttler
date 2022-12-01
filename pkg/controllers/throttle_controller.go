@@ -134,7 +134,7 @@ func (c *ThrottleController) reconcile(key string) error {
 	}
 	newStatus.Throttled = newStatus.CalculatedThreshold.Threshold.IsThrottled(newStatus.Used, true)
 
-	unreserveAffectedPods := func() (schedulev1alpha1.ResourceAmount, sets.String) {
+	unreserveAffectedPods := func() (schedulev1alpha1.ResourceAmount, sets.Set[string]) {
 		// Once status is updated, affected pods is safe to un-reserve from reserved resoruce amount cache
 		// We make sure to un-reserve terminated pods too here because it misses to unreserve terminated pods
 		// when reconcile is rate-limitted
@@ -183,7 +183,7 @@ func (c *ThrottleController) reconcile(key string) error {
 			"Threshold", thr.Status.CalculatedThreshold.Threshold,
 			"Message", strings.Join(thr.Status.CalculatedThreshold.Messages, ","),
 			"ReservedAmountInScheduler", reservedAmt,
-			"ReservedPodsInScheduler", strings.Join(reservedPodNNs.List(), ","),
+			"ReservedPodsInScheduler", strings.Join(sets.List(reservedPodNNs), ","),
 		)
 	} else {
 		c.metricsRecorder.recordThrottleMetrics(thr)
@@ -196,7 +196,7 @@ func (c *ThrottleController) reconcile(key string) error {
 			"Used", thr.Status.Used,
 			"Throttled", thr.Status.Throttled,
 			"ReservedAmountInScheduler", reservedAmt,
-			"ReservedPodsInScheduler", strings.Join(reservedPodNNs.List(), ","),
+			"ReservedPodsInScheduler", strings.Join(sets.List(reservedPodNNs), ","),
 		)
 	}
 
@@ -303,7 +303,7 @@ func (c *ThrottleController) ReserveOnThrottle(pod *v1.Pod, thr *schedulev1alpha
 			"Pod", pod.Namespace+"/"+pod.Name,
 			"Throttle", thr.Name,
 			"CurrentReservedAmount", reservedAmt,
-			"CurrentReservedPods", strings.Join(reservedPodNNs.List(), ","),
+			"CurrentReservedPods", strings.Join(sets.List(reservedPodNNs), ","),
 		)
 	}
 	return added
@@ -342,7 +342,7 @@ func (c *ThrottleController) UnReserveOnThrottle(pod *v1.Pod, thr *schedulev1alp
 			"Pod", pod.Namespace+"/"+pod.Name,
 			"Throttle", thr.Name,
 			"CurrentReservedAmount", reservedAmt,
-			"CurrentReservedPods", strings.Join(reservedPodNNs.List(), ","),
+			"CurrentReservedPods", strings.Join(sets.List(reservedPodNNs), ","),
 		)
 	}
 	return removed
@@ -382,7 +382,7 @@ func (c *ThrottleController) CheckThrottled(
 			"RequestedByPod", schedulev1alpha1.ResourceAmountOfPod(pod),
 			"UsedInThrottle", thr.Status.Used,
 			"ReservedAmountInScheduler", reservedAmt,
-			"ReservedPodsInScheduler", strings.Join(reservedPodNNs.List(), ","),
+			"ReservedPodsInScheduler", strings.Join(sets.List(reservedPodNNs), ","),
 			"AmountForCheck", schedulev1alpha1.ResourceAmount{}.Add(thr.Status.Used).Add(schedulev1alpha1.ResourceAmountOfPod(pod)).Add(reservedAmt),
 			"Threashold", thr.Status.CalculatedThreshold.Threshold,
 		)
