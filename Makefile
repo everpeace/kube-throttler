@@ -73,13 +73,13 @@ GO_IMPORTS = $(DEV_TOOL_PREFIX)/bin/goimports
 CONTROLLER_GEN = $(DEV_TOOL_PREFIX)/bin/controller-gen
 CODEGEN_PKG=$(CODEGEN_PKG_NAME)@$(CODEGEN_PKG_VERSION)
 CODEGEN_PKG_NAME=k8s.io/code-generator
-CODEGEN_PKG_VERSION=v0.24.3
+CODEGEN_PKG_VERSION=v0.25.4
 KIND = $(DEV_TOOL_PREFIX)/bin/kind
 KIND_KUBECNOFIG = $(DEV_TOOL_PREFIX)/.kubeconfig
 setup:
 	GOBIN=$(DEV_TOOL_PREFIX)/bin go install golang.org/x/tools/cmd/goimports@latest
 	GOBIN=$(DEV_TOOL_PREFIX)/bin go install github.com/elastic/go-licenser@latest
-	GOBIN=$(DEV_TOOL_PREFIX)/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.6.1
+	GOBIN=$(DEV_TOOL_PREFIX)/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.10.0
 	go mod download $(CODEGEN_PKG)
 	GOBIN=$(DEV_TOOL_PREFIX)/bin go install $(CODEGEN_PKG_NAME)/cmd/defaulter-gen@$(CODEGEN_PKG_VERSION)
 	GOBIN=$(DEV_TOOL_PREFIX)/bin go install $(CODEGEN_PKG_NAME)/cmd/client-gen@$(CODEGEN_PKG_VERSION)
@@ -87,7 +87,7 @@ setup:
 	GOBIN=$(DEV_TOOL_PREFIX)/bin go install $(CODEGEN_PKG_NAME)/cmd/informer-gen@$(CODEGEN_PKG_VERSION)
 	GOBIN=$(DEV_TOOL_PREFIX)/bin go install $(CODEGEN_PKG_NAME)/cmd/deepcopy-gen@$(CODEGEN_PKG_VERSION)
 	GOBIN=$(DEV_TOOL_PREFIX)/bin go install sigs.k8s.io/kind@latest
-	GOBIN=$(DEV_TOOL_PREFIX)/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.46.2
+	GOBIN=$(DEV_TOOL_PREFIX)/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.50.1
 
 #
 # local development
