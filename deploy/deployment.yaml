@@ -16,6 +16,13 @@ spec:
       labels:
         app: kube-throttler
     spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
       serviceAccountName: kube-throttler
       volumes:
       - name: scheduler-config
@@ -23,6 +30,11 @@ spec:
           name: scheduler-config
       containers:
       - name: ctr
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
         args:
         - --config=/scheduler-config/config.yaml
         - -v=3
