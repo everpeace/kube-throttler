@@ -82,7 +82,7 @@ func NewClusterThrottleController(
 		clusterthrottleInformer: clusterthrottleInformer,
 	}
 	c.reconcileFunc = c.reconcile
-	c.setupEventHandler()
+	c.mustSetupEventHandler()
 	return c
 }
 
@@ -137,7 +137,7 @@ func (c *ClusterThrottleController) reconcile(key string) error {
 	}
 	newStatus.Throttled = newStatus.CalculatedThreshold.Threshold.IsThrottled(newStatus.Used, true)
 
-	unreserveAffectedPods := func() (schedulev1alpha1.ResourceAmount, sets.String) {
+	unreserveAffectedPods := func() (schedulev1alpha1.ResourceAmount, sets.Set[string]) {
 		// Once status is updated, affected pods is safe to un-reserve from reserved resoruce amount cache
 		// We make sure to un-reserve terminated pods too here because it misses to unreserve terminated pods
 		// when reconcile is rate-limitted
@@ -186,7 +186,7 @@ func (c *ClusterThrottleController) reconcile(key string) error {
 			"Threshold", thr.Status.CalculatedThreshold.Threshold,
 			"Message", strings.Join(thr.Status.CalculatedThreshold.Messages, ","),
 			"ReservedAmountInScheduler", reservedAmt,
-			"ReservedPodsInScheduler", strings.Join(reservedPodNNs.List(), ","),
+			"ReservedPodsInScheduler", strings.Join(sets.List(reservedPodNNs), ","),
 		)
 	} else {
 		c.metricsRecorder.recordClusterThrottleMetrics(thr)
@@ -199,7 +199,7 @@ func (c *ClusterThrottleController) reconcile(key string) error {
 			"Used", thr.Status.Used,
 			"Throttled", thr.Status.Throttled,
 			"ReservedAmountInScheduler", reservedAmt,
-			"ReservedPodsInScheduler", strings.Join(reservedPodNNs.List(), ","),
+			"ReservedPodsInScheduler", strings.Join(sets.List(reservedPodNNs), ","),
 		)
 	}
 
@@ -332,7 +332,7 @@ func (c *ClusterThrottleController) ReserveOnClusterThrottle(pod *v1.Pod, thr *s
 			"Pod", pod.Namespace+"/"+pod.Name,
 			"ClusterThrottle", thr.Name,
 			"CurrentReservedAmount", reservedAmt,
-			"CurrentReservedPods", strings.Join(reservedPodNNs.List(), ","),
+			"CurrentReservedPods", strings.Join(sets.List(reservedPodNNs), ","),
 		)
 	}
 	return added
@@ -371,7 +371,7 @@ func (c *ClusterThrottleController) UnReserveOnClusterThrottle(pod *v1.Pod, thr 
 			"Pod", pod.Namespace+"/"+pod.Name,
 			"ClusterThrottle", thr.Name,
 			"CurrentReservedAmount", reservedAmt,
-			"CurrentReservedPods", strings.Join(reservedPodNNs.List(), ","),
+			"CurrentReservedPods", strings.Join(sets.List(reservedPodNNs), ","),
 		)
 	}
 	return removed
@@ -411,7 +411,7 @@ func (c *ClusterThrottleController) CheckThrottled(
 			"RequestedByPod", schedulev1alpha1.ResourceAmountOfPod(pod),
 			"UsedInClusterThrottle", thr.Status.Used,
 			"ReservedAmountInScheduler", reservedAmt,
-			"ReservedPodsInScheduler", strings.Join(reservedPodNNs.List(), ","),
+			"ReservedPodsInScheduler", strings.Join(sets.List(reservedPodNNs), ","),
 			"AmountForCheck", schedulev1alpha1.ResourceAmount{}.Add(thr.Status.Used).Add(schedulev1alpha1.ResourceAmountOfPod(pod)).Add(reservedAmt),
 		)
 		switch checkStatus {
@@ -426,9 +426,13 @@ func (c *ClusterThrottleController) CheckThrottled(
 	return alreadyThrottled, insufficient, podRequestsExceedsThreshold, affected, nil
 }
 
-func (c *ClusterThrottleController) setupEventHandler() {
-	c.namespaceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{})
-	c.clusterthrottleInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+// mustSetupEventHandler sets up event handlers. If something wrong happens, it will panic.
+func (c *ClusterThrottleController) mustSetupEventHandler() {
+	_, err := c.namespaceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{})
+	if err != nil {
+		panic(fmt.Errorf("failed to add event handler in namespace informer: %w", err))
+	}
+	_, err = c.clusterthrottleInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			thr := obj.(*v1alpha1.ClusterThrottle)
 			if !c.isResponsibleFor(thr) {
@@ -455,8 +459,11 @@ func (c *ClusterThrottleController) setupEventHandler() {
 			c.enqueue(thr)
 		},
 	})
+	if err != nil {
+		panic(fmt.Errorf("failed to add event handler in cluster throttle informer: %w", err))
+	}
 
-	c.podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err = c.podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			pod := obj.(*corev1.Pod)
 			if !c.shouldCountIn(pod) {
@@ -559,4 +566,7 @@ func (c *ClusterThrottleController) setupEventHandler() {
 			}
 		},
 	})
+	if err != nil {
+		panic(fmt.Errorf("failed to add event handler in pod informer: %w", err))
+	}
 }

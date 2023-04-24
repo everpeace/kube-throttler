@@ -73,7 +73,7 @@ GO_IMPORTS = $(DEV_TOOL_PREFIX)/bin/goimports
 CONTROLLER_GEN = $(DEV_TOOL_PREFIX)/bin/controller-gen
 CODEGEN_PKG=$(CODEGEN_PKG_NAME)@$(CODEGEN_PKG_VERSION)
 CODEGEN_PKG_NAME=k8s.io/code-generator
-CODEGEN_PKG_VERSION=v0.25.4
+CODEGEN_PKG_VERSION=v0.26.0
 KIND = $(DEV_TOOL_PREFIX)/bin/kind
 KIND_KUBECNOFIG = $(DEV_TOOL_PREFIX)/.kubeconfig
 setup:
@@ -87,7 +87,7 @@ setup:
 	GOBIN=$(DEV_TOOL_PREFIX)/bin go install $(CODEGEN_PKG_NAME)/cmd/informer-gen@$(CODEGEN_PKG_VERSION)
 	GOBIN=$(DEV_TOOL_PREFIX)/bin go install $(CODEGEN_PKG_NAME)/cmd/deepcopy-gen@$(CODEGEN_PKG_VERSION)
 	GOBIN=$(DEV_TOOL_PREFIX)/bin go install sigs.k8s.io/kind@latest
-	GOBIN=$(DEV_TOOL_PREFIX)/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.50.1
+	GOBIN=$(DEV_TOOL_PREFIX)/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.52.2
 
 #
 # local development

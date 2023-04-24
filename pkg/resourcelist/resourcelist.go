@@ -20,8 +20,6 @@ package resourcelist
 import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	"k8s.io/kubernetes/pkg/features"
 )
 
 type ResourceList corev1.ResourceList
@@ -40,7 +38,7 @@ func PodRequestResourceList(pod *corev1.Pod) ResourceList {
 	cRes.SetMax(icRes)
 
 	// If Overhead is being utilized, add to the total requests for the pod
-	if pod.Spec.Overhead != nil && utilfeature.DefaultFeatureGate.Enabled(features.PodOverhead) {
+	if pod.Spec.Overhead != nil {
 		cRes.Add(ResourceList(pod.Spec.Overhead))
 	}
 

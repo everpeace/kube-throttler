@@ -21,6 +21,7 @@ jobs:
       uses: actions/setup-go@v3
       with:
         go-version-file: 'go.mod'
+        go-version: "1.20"
     - name: Get Devtools
       run: make setup
     - name: Lint
@@ -36,6 +37,7 @@ jobs:
       uses: actions/setup-go@v3
       with:
         go-version-file: 'go.mod'
+        go-version: "1.20"
     - name: Get Devtools
       run: make setup
     - name: Build
@@ -53,6 +55,7 @@ jobs:
       uses: actions/setup-go@v3
       with:
         go-version-file: 'go.mod'
+        go-version: "1.20"
     - name: Get Devtools
       run: make setup
     - name: integration test
@@ -68,6 +71,7 @@ jobs:
       uses: actions/setup-go@v3
       with:
         go-version-file: 'go.mod'
+        go-version: "1.20"
     - name: Validate GoReleaser
       uses: goreleaser/goreleaser-action@v2
       with:
