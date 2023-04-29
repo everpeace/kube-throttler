@@ -20,16 +20,12 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
-	"math/rand"
-	"time"
-
 	kubethrottler "github.com/everpeace/kube-throttler/pkg/scheduler_plugin"
 	"k8s.io/component-base/logs"
 	"k8s.io/kubernetes/cmd/kube-scheduler/app"
 )
 
 func kubeSchedulerCmd() *cobra.Command {
-	rand.Seed(time.Now().UnixNano())
 	command := app.NewSchedulerCommand(
 		app.WithPlugin(kubethrottler.PluginName, kubethrottler.NewPlugin),
 	)

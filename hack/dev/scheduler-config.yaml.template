@@ -1,4 +1,4 @@
-apiVersion: kubescheduler.config.k8s.io/v1beta2
+apiVersion: kubescheduler.config.k8s.io/v1
 kind: KubeSchedulerConfiguration
 leaderElection:
   leaderElect: false # replicas: 1
@@ -9,11 +9,7 @@ percentageOfNodesToScore: 100
 profiles:
 - schedulerName: ${SCHEDULER_NAME}
   plugins:
-    preFilter:
-      enabled:
-      - name: kube-throttler
-        weight: 1
-    reserve:
+    multiPoint:
       enabled:
       - name: kube-throttler
         weight: 1

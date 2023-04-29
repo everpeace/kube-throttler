@@ -49,7 +49,6 @@ You need to register `kube-throttler` to your scheduler by calling `app.WithPlug
 ```go
 ...
 import (
-	"math/rand"
 	"time"
 
 	kubethrottler "github.com/everpeace/kube-throttler/pkg/scheduler_plugin"
@@ -58,8 +57,6 @@ import (
 )
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
-
 	command := app.NewSchedulerCommand(
 		...
 		app.WithPlugin(kubethrottler.PluginName, kubethrottler.NewPlugin),
