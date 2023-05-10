@@ -23,13 +23,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/everpeace/kube-throttler/pkg/apis/schedule/v1alpha1"
 	schedulev1alpha1 "github.com/everpeace/kube-throttler/pkg/apis/schedule/v1alpha1"
 	scheduleclientset "github.com/everpeace/kube-throttler/pkg/generated/clientset/versioned"
 	scheduleinformer "github.com/everpeace/kube-throttler/pkg/generated/informers/externalversions/schedule/v1alpha1"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -220,14 +218,14 @@ func (c *ThrottleController) shouldCountIn(pod *corev1.Pod) bool {
 	return pod.Spec.SchedulerName == c.targetSchedulerName && isScheduled(pod)
 }
 
-func (c *ThrottleController) affectedPods(thr *schedulev1alpha1.Throttle) ([]*v1.Pod, []*v1.Pod, error) {
+func (c *ThrottleController) affectedPods(thr *schedulev1alpha1.Throttle) ([]*corev1.Pod, []*corev1.Pod, error) {
 	pods, err := c.podInformer.Lister().Pods(thr.Namespace).List(labels.Everything())
 	if err != nil {
 		return nil, nil, err
 	}
 
-	nonterminatedPods := []*v1.Pod{}
-	terminatedPods := []*v1.Pod{}
+	nonterminatedPods := []*corev1.Pod{}
+	terminatedPods := []*corev1.Pod{}
 	for _, pod := range pods {
 		if !(c.shouldCountIn(pod)) {
 			continue
@@ -247,7 +245,7 @@ func (c *ThrottleController) affectedPods(thr *schedulev1alpha1.Throttle) ([]*v1
 	return nonterminatedPods, terminatedPods, nil
 }
 
-func (c *ThrottleController) affectedThrottles(pod *v1.Pod) ([]*schedulev1alpha1.Throttle, error) {
+func (c *ThrottleController) affectedThrottles(pod *corev1.Pod) ([]*schedulev1alpha1.Throttle, error) {
 	throttles, err := c.throttleInformer.Lister().Throttles(pod.Namespace).List(labels.Everything())
 	if err != nil {
 		return nil, err
@@ -270,7 +268,7 @@ func (c *ThrottleController) affectedThrottles(pod *v1.Pod) ([]*schedulev1alpha1
 	return affectedThrottles, nil
 }
 
-func (c *ThrottleController) Reserve(pod *v1.Pod) error {
+func (c *ThrottleController) Reserve(pod *corev1.Pod) error {
 	throttles, err := c.affectedThrottles(pod)
 	if err != nil {
 		return err
@@ -293,7 +291,7 @@ func (c *ThrottleController) Reserve(pod *v1.Pod) error {
 	return nil
 }
 
-func (c *ThrottleController) ReserveOnThrottle(pod *v1.Pod, thr *schedulev1alpha1.Throttle) bool {
+func (c *ThrottleController) ReserveOnThrottle(pod *corev1.Pod, thr *schedulev1alpha1.Throttle) bool {
 	nn := types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}
 	added := c.cache.addPod(nn, pod)
 	reservedAmt, reservedPodNNs := c.cache.reservedResourceAmount(nn)
@@ -309,7 +307,7 @@ func (c *ThrottleController) ReserveOnThrottle(pod *v1.Pod, thr *schedulev1alpha
 	return added
 }
 
-func (c *ThrottleController) UnReserve(pod *v1.Pod) error {
+func (c *ThrottleController) UnReserve(pod *corev1.Pod) error {
 	throttles, err := c.affectedThrottles(pod)
 	if err != nil {
 		return err
@@ -332,7 +330,7 @@ func (c *ThrottleController) UnReserve(pod *v1.Pod) error {
 	return nil
 }
 
-func (c *ThrottleController) UnReserveOnThrottle(pod *v1.Pod, thr *schedulev1alpha1.Throttle) bool {
+func (c *ThrottleController) UnReserveOnThrottle(pod *corev1.Pod, thr *schedulev1alpha1.Throttle) bool {
 	nn := types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}
 	removed := c.cache.removePod(nn, pod)
 	reservedAmt, reservedPodNNs := c.cache.reservedResourceAmount(nn)
@@ -349,7 +347,7 @@ func (c *ThrottleController) UnReserveOnThrottle(pod *v1.Pod, thr *schedulev1alp
 }
 
 func (c *ThrottleController) CheckThrottled(
-	pod *v1.Pod,
+	pod *corev1.Pod,
 	isThrottledOnEqual bool,
 ) (
 	[]schedulev1alpha1.Throttle,
@@ -402,7 +400,7 @@ func (c *ThrottleController) CheckThrottled(
 func (c *ThrottleController) mustSetupEventHandler() {
 	_, err := c.throttleInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			thr := obj.(*v1alpha1.Throttle)
+			thr := obj.(*schedulev1alpha1.Throttle)
 			if !c.isResponsibleFor(thr) {
 				return
 			}
@@ -410,7 +408,7 @@ func (c *ThrottleController) mustSetupEventHandler() {
 			c.enqueue(thr)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			thr := newObj.(*v1alpha1.Throttle)
+			thr := newObj.(*schedulev1alpha1.Throttle)
 			if !c.isResponsibleFor(thr) {
 				return
 			}
@@ -418,7 +416,7 @@ func (c *ThrottleController) mustSetupEventHandler() {
 			c.enqueue(thr)
 		},
 		DeleteFunc: func(obj interface{}) {
-			thr := obj.(*v1alpha1.Throttle)
+			thr := obj.(*schedulev1alpha1.Throttle)
 			if !c.isResponsibleFor(thr) {
 				return
 			}

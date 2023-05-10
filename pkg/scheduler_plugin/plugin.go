@@ -112,7 +112,6 @@ func NewPlugin(configuration runtime.Object, fh framework.Handle) (framework.Plu
 	)
 
 	scheduleInformerFactory.Start(ctx.Done())
-	scheduleInformerFactory.WaitForCacheSync(ctx.Done())
 	syncResults := scheduleInformerFactory.WaitForCacheSync(ctx.Done())
 	for informer, ok := range syncResults {
 		if !ok {
@@ -249,7 +248,6 @@ func (pl *KubeThrottler) Unreserve(
 	if err != nil {
 		utilruntime.HandleError(errors.Wrapf(err, "Failed to unreserve pod %s/%s in ThrottleController", pod.Namespace, pod.Name))
 	}
-	pod.GetName()
 	err = pl.clusterThrottleCtr.UnReserve(pod)
 	if err != nil {
 		utilruntime.HandleError(errors.Wrapf(err, "Failed to unreserve pod %s/%s in ClusterThrottleController", pod.Namespace, pod.Name))

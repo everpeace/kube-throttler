@@ -23,13 +23,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/everpeace/kube-throttler/pkg/apis/schedule/v1alpha1"
 	schedulev1alpha1 "github.com/everpeace/kube-throttler/pkg/apis/schedule/v1alpha1"
 	scheduleclientset "github.com/everpeace/kube-throttler/pkg/generated/clientset/versioned"
 	scheduleinformer "github.com/everpeace/kube-throttler/pkg/generated/informers/externalversions/schedule/v1alpha1"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -223,7 +221,7 @@ func (c *ClusterThrottleController) shouldCountIn(pod *corev1.Pod) bool {
 	return pod.Spec.SchedulerName == c.targetSchedulerName && isScheduled(pod)
 }
 
-func (c *ClusterThrottleController) affectedPods(thr *schedulev1alpha1.ClusterThrottle) ([]*v1.Pod, []*v1.Pod, error) {
+func (c *ClusterThrottleController) affectedPods(thr *schedulev1alpha1.ClusterThrottle) ([]*corev1.Pod, []*corev1.Pod, error) {
 	pods := []*corev1.Pod{}
 	nsMap := map[string]*corev1.Namespace{}
 	nss, err := c.namespaceInformer.Lister().List(labels.Everything())
@@ -248,8 +246,8 @@ func (c *ClusterThrottleController) affectedPods(thr *schedulev1alpha1.ClusterTh
 		pods = append(pods, podsInNs...)
 	}
 
-	nonterminatedPods := []*v1.Pod{}
-	terminatedPods := []*v1.Pod{}
+	nonterminatedPods := []*corev1.Pod{}
+	terminatedPods := []*corev1.Pod{}
 	for _, pod := range pods {
 		if !(c.shouldCountIn(pod)) {
 			continue
@@ -271,7 +269,7 @@ func (c *ClusterThrottleController) affectedPods(thr *schedulev1alpha1.ClusterTh
 	return nonterminatedPods, terminatedPods, nil
 }
 
-func (c *ClusterThrottleController) affectedClusterThrottles(pod *v1.Pod) ([]*schedulev1alpha1.ClusterThrottle, error) {
+func (c *ClusterThrottleController) affectedClusterThrottles(pod *corev1.Pod) ([]*schedulev1alpha1.ClusterThrottle, error) {
 	ns, err := c.namespaceInformer.Lister().Get(pod.Namespace)
 	if err != nil {
 		return nil, err
@@ -299,7 +297,7 @@ func (c *ClusterThrottleController) affectedClusterThrottles(pod *v1.Pod) ([]*sc
 	return affectedClusterThrottles, nil
 }
 
-func (c *ClusterThrottleController) Reserve(pod *v1.Pod) error {
+func (c *ClusterThrottleController) Reserve(pod *corev1.Pod) error {
 	throttles, err := c.affectedClusterThrottles(pod)
 	if err != nil {
 		return err
@@ -322,7 +320,7 @@ func (c *ClusterThrottleController) Reserve(pod *v1.Pod) error {
 	return nil
 }
 
-func (c *ClusterThrottleController) ReserveOnClusterThrottle(pod *v1.Pod, thr *schedulev1alpha1.ClusterThrottle) bool {
+func (c *ClusterThrottleController) ReserveOnClusterThrottle(pod *corev1.Pod, thr *schedulev1alpha1.ClusterThrottle) bool {
 	nn := types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}
 	added := c.cache.addPod(nn, pod)
 	reservedAmt, reservedPodNNs := c.cache.reservedResourceAmount(nn)
@@ -338,7 +336,7 @@ func (c *ClusterThrottleController) ReserveOnClusterThrottle(pod *v1.Pod, thr *s
 	return added
 }
 
-func (c *ClusterThrottleController) UnReserve(pod *v1.Pod) error {
+func (c *ClusterThrottleController) UnReserve(pod *corev1.Pod) error {
 	throttles, err := c.affectedClusterThrottles(pod)
 	if err != nil {
 		return err
@@ -361,7 +359,7 @@ func (c *ClusterThrottleController) UnReserve(pod *v1.Pod) error {
 	return nil
 }
 
-func (c *ClusterThrottleController) UnReserveOnClusterThrottle(pod *v1.Pod, thr *schedulev1alpha1.ClusterThrottle) bool {
+func (c *ClusterThrottleController) UnReserveOnClusterThrottle(pod *corev1.Pod, thr *schedulev1alpha1.ClusterThrottle) bool {
 	nn := types.NamespacedName{Namespace: thr.Namespace, Name: thr.Name}
 	removed := c.cache.removePod(nn, pod)
 	reservedAmt, reservedPodNNs := c.cache.reservedResourceAmount(nn)
@@ -378,7 +376,7 @@ func (c *ClusterThrottleController) UnReserveOnClusterThrottle(pod *v1.Pod, thr 
 }
 
 func (c *ClusterThrottleController) CheckThrottled(
-	pod *v1.Pod,
+	pod *corev1.Pod,
 	isThrottledOnEqual bool,
 ) (
 	[]schedulev1alpha1.ClusterThrottle,
@@ -434,7 +432,7 @@ func (c *ClusterThrottleController) mustSetupEventHandler() {
 	}
 	_, err = c.clusterthrottleInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			thr := obj.(*v1alpha1.ClusterThrottle)
+			thr := obj.(*schedulev1alpha1.ClusterThrottle)
 			if !c.isResponsibleFor(thr) {
 				return
 			}
@@ -443,7 +441,7 @@ func (c *ClusterThrottleController) mustSetupEventHandler() {
 			c.enqueue(thr)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			thr := newObj.(*v1alpha1.ClusterThrottle)
+			thr := newObj.(*schedulev1alpha1.ClusterThrottle)
 			if !c.isResponsibleFor(thr) {
 				return
 			}
@@ -451,7 +449,7 @@ func (c *ClusterThrottleController) mustSetupEventHandler() {
 			c.enqueue(thr)
 		},
 		DeleteFunc: func(obj interface{}) {
-			thr := obj.(*v1alpha1.ClusterThrottle)
+			thr := obj.(*schedulev1alpha1.ClusterThrottle)
 			if !c.isResponsibleFor(thr) {
 				return
 			}
