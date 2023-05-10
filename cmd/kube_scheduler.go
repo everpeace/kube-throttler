@@ -29,7 +29,7 @@ func kubeSchedulerCmd() *cobra.Command {
 	command := app.NewSchedulerCommand(
 		app.WithPlugin(kubethrottler.PluginName, kubethrottler.NewPlugin),
 	)
-	command.Short = "run kube-scheduler with kube-throttler plugin (need to enable 'KubeThrottler' plugin in config)"
+	command.Short = "Run kube-scheduler with kube-throttler plugin (need to enable 'KubeThrottler' plugin in config)"
 	// TODO: once we switch everything over to Cobra commands, we can go back to calling
 	// utilflag.InitFlags() (by removing its pflag.Parse() call). For now, we have to set the
 	// normalize func and add the go flag set by hand.
