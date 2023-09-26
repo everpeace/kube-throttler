@@ -64,8 +64,20 @@ var _ = Describe("ReservedResourceAmounts", func() {
 				remove.Done()
 			}(i)
 		}
+
+		reservedResourceAmount := &sync.WaitGroup{}
+		reservedResourceAmount.Add(n)
+		for i := 0; i < n; i++ {
+			go func(j int) {
+				r.reservedResourceAmount(
+					types.NamespacedName{Name: "test"},
+				)
+				reservedResourceAmount.Done()
+			}(i)
+		}
 		add.Wait()
 		remove.Wait()
+		reservedResourceAmount.Wait()
 	})
 	It("should be threadsafe on specific throttle's namespacedname", func() {
 		r := newReservedResourceAmounts(1024)

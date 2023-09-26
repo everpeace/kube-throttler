@@ -115,7 +115,10 @@ func (c *reservedResourceAmounts) reservedResourceAmount(nn types.NamespacedName
 	defer func() {
 		_ = c.keyMutex.UnlockKey(nn.String())
 	}()
+
+	c.RLock()
 	podResourceAmountMap, ok := c.cache[nn]
+	c.RUnlock()
 	if !ok {
 		return schedulev1alpha1.ResourceAmount{}, sets.New[string]()
 	}
