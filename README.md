@@ -1,3 +1,5 @@
+# __Deprecation Notice: kube-throttler's development had been transferred to [pfnet/kube-throttler](https://github.com/pfnet/kube-throttler).__
+
 # kube-throttler : throttling your pods in kubernetes cluster
 
 `kube-throttler` enables you to throttle your pods.   It means that `kube-throttler` can prohibit to schedule any pods when it detects total amount of computational resource(in terms of `resources.requests` field) or the count of `Running` pods may exceeds a threshold .
